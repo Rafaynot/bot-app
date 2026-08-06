@@ -7,6 +7,8 @@ Demo mode generates realistic OHLC for offline GUI development.
 
 from __future__ import annotations
 
+import glob
+import os
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -45,6 +47,50 @@ BINANCE_INTERVAL: dict[TimeFrame, str] = {
     TimeFrame.W1: "1w",
     TimeFrame.MN1: "1M",
 }
+
+
+def find_mt5_terminal() -> str | None:
+    """Locate terminal64.exe for MetaTrader 5 (broker installs vary)."""
+    candidates: list[str] = []
+
+    env_path = os.getenv("MT5_PATH")
+    if env_path and os.path.isfile(env_path):
+        return env_path
+
+    candidates.extend(
+        [
+            r"C:\Program Files\MetaTrader 5\terminal64.exe",
+            r"C:\Program Files (x86)\MetaTrader 5\terminal64.exe",
+        ]
+    )
+
+    appdata = os.environ.get("APPDATA", "")
+    if appdata:
+        candidates.extend(
+            glob.glob(os.path.join(appdata, "MetaQuotes", "Terminal", "*", "terminal64.exe"))
+        )
+
+    localappdata = os.environ.get("LOCALAPPDATA", "")
+    if localappdata:
+        candidates.extend(
+            glob.glob(
+                os.path.join(localappdata, "Programs", "**", "terminal64.exe"),
+                recursive=True,
+            )
+        )
+
+    seen: set[str] = set()
+    for path in candidates:
+        norm = os.path.normcase(os.path.abspath(path))
+        if norm in seen or not os.path.isfile(path):
+            continue
+        seen.add(norm)
+        return path
+    return None
+
+
+class MT5ConnectionError(RuntimeError):
+    """Raised when live MT5 data cannot be reached."""
 
 
 @dataclass
@@ -169,6 +215,7 @@ class MT5Provider(DataProvider):
         self._mt5: Any = None
         self._connected = False
         self._resolved_symbol: str | None = None
+        self.terminal_path: str | None = None
 
     def connect(self) -> bool:
         try:
@@ -179,8 +226,12 @@ class MT5Provider(DataProvider):
 
         self._mt5 = mt5
         kwargs: dict[str, Any] = {}
-        if self.cfg.path:
-            kwargs["path"] = self.cfg.path
+        terminal_path = self.cfg.path
+        if not terminal_path and self.cfg.auto_discover_path:
+            terminal_path = find_mt5_terminal()
+        if terminal_path:
+            kwargs["path"] = terminal_path
+            self.terminal_path = terminal_path
         if self.cfg.login is not None:
             kwargs["login"] = self.cfg.login
         if self.cfg.password:
@@ -190,7 +241,15 @@ class MT5Provider(DataProvider):
 
         ok = mt5.initialize(**kwargs) if kwargs else mt5.initialize()
         if not ok:
-            logger.error("MT5 initialize failed: %s", mt5.last_error())
+            err = mt5.last_error()
+            if terminal_path:
+                logger.error("MT5 initialize failed (%s): %s", terminal_path, err)
+            else:
+                logger.error(
+                    "MT5 initialize failed: %s — install MetaTrader 5 and log in, "
+                    "or set MT5_PATH / --mt5-path",
+                    err,
+                )
             return False
 
         self._resolved_symbol = self._resolve_symbol(self.cfg.symbol)
@@ -201,7 +260,14 @@ class MT5Provider(DataProvider):
 
         mt5.symbol_select(self._resolved_symbol, True)
         self._connected = True
-        logger.info("MT5 connected — symbol=%s", self._resolved_symbol)
+        info = mt5.account_info()
+        acct = f"{info.login}@{info.server}" if info else "unknown account"
+        logger.info(
+            "MT5 connected — symbol=%s account=%s terminal=%s",
+            self._resolved_symbol,
+            acct,
+            terminal_path or "default",
+        )
         return True
 
     def _resolve_symbol(self, preferred: str) -> str | None:
@@ -387,7 +453,7 @@ class DemoProvider(DataProvider):
         return self._connected
 
     def _rebuild(self) -> None:
-        n = 60_000  # ~40 trading days of M1 — enough for D1/W1 aggregates
+        n = 10_000  # M1 bars — enough for top-down timeframes
         now = utc_now().replace(second=0, microsecond=0)
         times = [now - timedelta(minutes=n - i) for i in range(n)]
         # Geometric Brownian motion with mild mean reversion
@@ -470,7 +536,7 @@ class NewsCalendar:
         try:
             import requests
 
-            r = requests.get(CONFIG.news.calendar_url, timeout=15)
+            r = requests.get(CONFIG.news.calendar_url, timeout=3)
             r.raise_for_status()
             self._events = r.json()
             self._last_fetch = now
@@ -535,17 +601,28 @@ class NewsCalendar:
 
 
 def create_provider(source: DataSource | None = None) -> DataProvider:
-    """Factory — prefer MT5, fall back to demo on failure."""
+    """Connect market data provider. MT5 fails loudly unless demo fallback is enabled."""
     src = source or CONFIG.data_source
     if src == DataSource.MT5:
         provider: DataProvider = MT5Provider()
         if provider.connect():
+            CONFIG.data_source = DataSource.MT5
             return provider
-        logger.warning("MT5 unavailable — falling back to demo data")
-        demo = DemoProvider()
-        demo.connect()
-        CONFIG.data_source = DataSource.DEMO
-        return demo
+        if CONFIG.mt5_demo_fallback:
+            logger.warning("MT5 unavailable — falling back to demo data")
+            demo = DemoProvider()
+            demo.connect()
+            CONFIG.data_source = DataSource.DEMO
+            return demo
+        terminal = find_mt5_terminal()
+        hint = (
+            f"Found terminal: {terminal}" if terminal else "MetaTrader 5 terminal not found on this PC"
+        )
+        raise MT5ConnectionError(
+            "Could not connect to MetaTrader 5 for live XAUUSD. "
+            f"{hint}. Install MT5 from your broker, log in, enable XAUUSD in Market Watch, "
+            "then run: python main.py --source mt5"
+        )
     if src == DataSource.BINANCE:
         provider = BinanceProvider()
         if provider.connect():
@@ -557,4 +634,5 @@ def create_provider(source: DataSource | None = None) -> DataProvider:
         return demo
     demo = DemoProvider()
     demo.connect()
+    CONFIG.data_source = DataSource.DEMO
     return demo

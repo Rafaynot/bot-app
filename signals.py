@@ -57,7 +57,7 @@ class TradeSignal:
         thr = LEARNER.adaptive_threshold(mode, CONFIG.signal.min_confidence)
         lines = [
             f"{self.direction.value}  [{mode.upper()}]",
-            f"Confidence: {self.confidence:.0f}% (need ≥{thr:.0f}%)",
+            f"Confidence: {self.confidence:.0f}% (need >={thr:.0f}%)",
             f"Entry TF: {self.timeframe or CONFIG.entry_timeframe.value}",
             "",
             "Reasons:",
@@ -443,7 +443,7 @@ class SignalEngine:
 
         score += self._p("Risk_Reward", 5)
         features["Risk_Reward"] = True
-        reasons.append("Risk Reward ≥ 1:1.2 (pending plan)")
+        reasons.append("Risk Reward >= 1:1.2 (pending plan)")
 
         if cfg.scalp_require_killzone and not kz:
             score *= 0.35
@@ -551,7 +551,7 @@ class SignalEngine:
 
         score += self._p("Risk_Reward", 5)
         features["Risk_Reward"] = True
-        reasons.append("Risk Reward ≥ 1:1.2 (pending plan)")
+        reasons.append("Risk Reward >= 1:1.2 (pending plan)")
 
         if cfg.scalp_require_killzone and not kz:
             score *= 0.35
@@ -712,7 +712,7 @@ class SignalEngine:
 
         score += self._p("Risk_Reward", 6)
         features["Risk_Reward"] = True
-        reasons.append("Risk Reward ≥ 1:2 (pending plan)")
+        reasons.append("Risk Reward >= 1:2 (pending plan)")
         return clamp(score, 0, 100), reasons, failed, features
 
     def _score_sell(
@@ -863,5 +863,5 @@ class SignalEngine:
 
         score += self._p("Risk_Reward", 6)
         features["Risk_Reward"] = True
-        reasons.append("Risk Reward ≥ 1:2 (pending plan)")
+        reasons.append("Risk Reward >= 1:2 (pending plan)")
         return clamp(score, 0, 100), reasons, failed, features

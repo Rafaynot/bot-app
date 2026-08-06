@@ -31,8 +31,8 @@ from PySide6.QtWidgets import (
 
 from analysis import TopDownAnalysis, run_top_down
 from alerts import AlertManager
-from config import CONFIG, TimeFrame, TradingMode, apply_trading_mode
-from data import DataProvider, MarketSnapshot, NewsCalendar, create_provider
+from config import CONFIG, DataSource, TimeFrame, TradingMode, apply_trading_mode
+from data import DataProvider, MT5Provider, MarketSnapshot, NewsCalendar, create_provider
 from database import SignalDatabase, resolve_pending_outcomes
 from learning import LEARNER
 from signals import SignalEngine, TradeSignal
@@ -222,6 +222,25 @@ QScrollBar::handle:vertical {
     min-height: 30px;
 }
 """
+
+
+class InitProviderWorker(QThread):
+    """Background MT5 / market data provider connection worker."""
+
+    connected = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, source: DataSource, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.source = source
+
+    def run(self) -> None:
+        try:
+            provider = create_provider(self.source)
+            self.connected.emit(provider)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Provider initialization failed")
+            self.failed.emit(str(exc))
 
 
 class AnalysisWorker(QThread):
@@ -427,13 +446,15 @@ class Dashboard(QMainWindow):
         self.resize(CONFIG.ui.window_width, CONFIG.ui.window_height)
         self.setStyleSheet(DARK_QSS)
 
-        self.provider = create_provider(CONFIG.data_source)
+        self.provider: DataProvider | None = None
+        self._source_detail = self._format_source_label()
         self.news = NewsCalendar()
         self.engine = SignalEngine(self.news)
         self.db = SignalDatabase()
         self.alerts = AlertManager()
         self.alerts.bind_window(self)
         self._worker: AnalysisWorker | None = None
+        self._init_worker: InitProviderWorker | None = None
         self._chart_path = Path(tempfile.gettempdir()) / "xauusd_chart.html"
         self._last_analysis: TopDownAnalysis | None = None
         self._last_signal: TradeSignal | None = None
@@ -444,8 +465,9 @@ class Dashboard(QMainWindow):
         self.timer = QTimer(self)
         self.timer.setInterval(CONFIG.ui.refresh_ms)
         self.timer.timeout.connect(self.refresh)
-        self.timer.start()
-        QTimer.singleShot(200, self.refresh)
+
+        # Connect data provider asynchronously so GUI initializes instantly without freezing
+        self._start_provider_init()
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -486,7 +508,7 @@ class Dashboard(QMainWindow):
         header.addWidget(mode_lbl)
         header.addWidget(mode_box)
 
-        self.source_lbl = QLabel(f"Source: {CONFIG.data_source.value.upper()}")
+        self.source_lbl = QLabel(self._source_detail)
         self.source_lbl.setObjectName("subtitle")
         self.clock_lbl = QLabel("")
         self.clock_lbl.setObjectName("subtitle")
@@ -624,12 +646,12 @@ class Dashboard(QMainWindow):
             return (
                 f"SCALP · Entry {CONFIG.entry_timeframe.value} + {confirm} confirm · "
                 f"KZ required · thr {CONFIG.signal.min_confidence:.0f}% · "
-                f"R:R ≥ {CONFIG.risk.min_risk_reward:.1f}"
+                f"R:R >= {CONFIG.risk.min_risk_reward:.1f}"
             )
         return (
             f"SWING · Entry {CONFIG.entry_timeframe.value} · full confluence · "
             f"thr {CONFIG.signal.min_confidence:.0f}% · "
-            f"R:R ≥ {CONFIG.risk.min_risk_reward:.1f}"
+            f"R:R >= {CONFIG.risk.min_risk_reward:.1f}"
         )
 
     def _on_mode_changed(self, index: int) -> None:
@@ -652,7 +674,42 @@ class Dashboard(QMainWindow):
         )
         self.refresh()
 
+    def _format_source_label(self) -> str:
+        src = CONFIG.data_source.value.upper()
+        mode = CONFIG.trading_mode.value.upper()
+        if self.provider and isinstance(self.provider, MT5Provider) and self.provider.is_connected():
+            sym = self.provider._resolved_symbol or CONFIG.primary_symbol
+            return f"Source: MT5 LIVE · {sym} · {mode}"
+        if self.provider is None:
+            return f"Source: {src} (Connecting...) · {mode}"
+        return f"Source: {src} · {mode}"
+
+    def _start_provider_init(self) -> None:
+        self.status_lbl.setText("Status: Connecting to MT5 / market data provider...")
+        self.refresh_btn.setEnabled(False)
+        self._init_worker = InitProviderWorker(CONFIG.data_source)
+        self._init_worker.connected.connect(self._on_provider_connected)
+        self._init_worker.failed.connect(self._on_provider_failed)
+        self._init_worker.start()
+
+    def _on_provider_connected(self, provider: DataProvider) -> None:
+        self.provider = provider
+        self._source_detail = self._format_source_label()
+        self.source_lbl.setText(self._source_detail)
+        self.status_lbl.setText("Status: Provider connected · analyzing initial data...")
+        self.timer.start()
+        self.refresh()
+
+    def _on_provider_failed(self, msg: str) -> None:
+        self.status_lbl.setText(f"Status: Connection failed — {msg}")
+        self.refresh_btn.setEnabled(True)
+        self.clock_lbl.setText(utc_now().strftime("%Y-%m-%d %H:%M:%S UTC"))
+
     def refresh(self) -> None:
+        if self.provider is None:
+            if not self._init_worker or not self._init_worker.isRunning():
+                self._start_provider_init()
+            return
         if self._worker and self._worker.isRunning():
             return
         self.status_lbl.setText("Status: analyzing…")
@@ -700,7 +757,7 @@ class Dashboard(QMainWindow):
         self.conf_bar.setStyleSheet(
             f"QProgressBar::chunk {{ background-color: {color_conf}; border-radius: 5px; }}"
         )
-        self.conf_bar.setFormat(f"Confidence: %v% (need ≥{thr}%)")
+        self.conf_bar.setFormat(f"Confidence: %v% (need >={thr}%)")
 
         self.cards["price"].set_value(f"{analysis.price:.2f}", "#f0d78c")
         self.cards["trend"].set_value(signal.trend or "—")
@@ -765,7 +822,7 @@ class Dashboard(QMainWindow):
         # Chart
         try:
             fig = build_chart(analysis, signal, CONFIG.ui.chart_timeframe)
-            fig.write_html(str(self._chart_path), include_plotlyjs="cdn", full_html=True)
+            fig.write_html(str(self._chart_path), include_plotlyjs="directory", full_html=True)
             if self.chart_view is not None:
                 self.chart_view.load(QUrl.fromLocalFile(str(self._chart_path)))
             else:
@@ -790,10 +847,17 @@ class Dashboard(QMainWindow):
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self.timer.stop()
-        try:
-            self.provider.disconnect()
-        except Exception:  # noqa: BLE001
-            pass
+        if self._worker and self._worker.isRunning():
+            self._worker.quit()
+            self._worker.wait(1000)
+        if self._init_worker and self._init_worker.isRunning():
+            self._init_worker.quit()
+            self._init_worker.wait(1000)
+        if self.provider:
+            try:
+                self.provider.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
         super().closeEvent(event)
 
 

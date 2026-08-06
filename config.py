@@ -78,6 +78,7 @@ class MT5Config:
     password: str | None = None
     server: str | None = None
     path: str | None = None  # Terminal path if not default
+    auto_discover_path: bool = True
     candles_per_tf: int = 500
 
 
@@ -194,6 +195,8 @@ class AppConfig:
     """Root application configuration."""
 
     data_source: DataSource = DataSource.MT5
+    # When False, MT5 connection failure raises instead of falling back to demo.
+    mt5_demo_fallback: bool = False
     trading_mode: TradingMode = TradingMode.SWING
     primary_symbol: str = "XAUUSD"
     analysis_timeframes: tuple[TimeFrame, ...] = tuple(TimeFrame)
@@ -219,6 +222,34 @@ class AppConfig:
 
 # Singleton default config — import and mutate as needed
 CONFIG = AppConfig()
+
+
+def load_env_overrides() -> None:
+    """Apply MT5 / Telegram credentials from environment variables."""
+    import os
+
+    login = os.getenv("MT5_LOGIN")
+    if login:
+        CONFIG.mt5.login = int(login)
+    password = os.getenv("MT5_PASSWORD")
+    if password:
+        CONFIG.mt5.password = password
+    server = os.getenv("MT5_SERVER")
+    if server:
+        CONFIG.mt5.server = server
+    path = os.getenv("MT5_PATH")
+    if path:
+        CONFIG.mt5.path = path
+    symbol = os.getenv("MT5_SYMBOL")
+    if symbol:
+        CONFIG.mt5.symbol = symbol
+        CONFIG.primary_symbol = symbol
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat = os.getenv("TELEGRAM_CHAT_ID")
+    if token and chat:
+        CONFIG.telegram.enabled = True
+        CONFIG.telegram.bot_token = token
+        CONFIG.telegram.chat_id = chat
 
 
 def apply_trading_mode(mode: TradingMode | str) -> None:

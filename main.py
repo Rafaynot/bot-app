@@ -18,7 +18,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from config import CONFIG, DataSource, TradingMode, apply_trading_mode
+from config import CONFIG, DataSource, TradingMode, apply_trading_mode, load_env_overrides
 from utils import setup_logging
 
 
@@ -28,7 +28,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--source",
         choices=["mt5", "binance", "demo"],
         default=None,
-        help="Market data source (default: mt5 with demo fallback)",
+        help="Market data source (default: mt5 live, no demo fallback)",
+    )
+    p.add_argument(
+        "--demo-fallback",
+        action="store_true",
+        help="If MT5 fails, use synthetic demo data instead of exiting",
     )
     p.add_argument("--symbol", default=None, help="Override symbol (e.g. XAUUSD, XAUUSDT, BTCUSDT)")
     p.add_argument(
@@ -59,11 +64,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def apply_args(args: argparse.Namespace) -> None:
+    load_env_overrides()
     # Mode first so later flags (min-confidence, refresh) can override profile defaults
     if args.mode:
         apply_trading_mode(args.mode)
     if args.source:
         CONFIG.data_source = DataSource(args.source)
+    if args.demo_fallback:
+        CONFIG.mt5_demo_fallback = True
+    elif args.source == "demo":
+        CONFIG.mt5_demo_fallback = True
     if args.symbol:
         CONFIG.primary_symbol = args.symbol
         CONFIG.mt5.symbol = args.symbol
@@ -145,7 +155,15 @@ def main(argv: list[str] | None = None) -> int:
 
     from dashboard import run_dashboard
 
-    return run_dashboard()
+    try:
+        return run_dashboard()
+    except Exception as exc:
+        from data import MT5ConnectionError
+
+        if isinstance(exc, MT5ConnectionError):
+            print(f"MT5 connection failed:\n{exc}", file=sys.stderr)
+            return 1
+        raise
 
 
 if __name__ == "__main__":
