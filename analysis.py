@@ -246,7 +246,7 @@ def run_top_down(snapshot: MarketSnapshot) -> TopDownAnalysis:
             continue
         result.frames[tf] = analyze_timeframe(tf, df)
 
-    # Higher-timeframe confluence (mode-aware: swing uses MN1→H4, scalp uses H1/M15)
+    # Higher-timeframe confluence (swing MN1→H4, intraday H4/H1, scalp H1/M15)
     htf = CONFIG.htf_timeframes or HTF
     htf_biases = [result.frames[tf].trend for tf in htf if tf in result.frames]
     if htf_biases:

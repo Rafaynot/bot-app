@@ -44,9 +44,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument(
         "--mode",
-        choices=["swing", "scalp"],
+        choices=["swing", "intraday", "scalp"],
         default=None,
-        help="Trading profile: swing (default) or scalp",
+        help="Trading profile: swing (default), intraday, or scalp",
     )
     p.add_argument("--balance", type=float, default=None, help="Account balance for lot sizing")
     p.add_argument("--risk", type=float, default=None, help="Max risk percent (default 1.0)")
