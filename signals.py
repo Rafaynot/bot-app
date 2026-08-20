@@ -2,6 +2,7 @@
 Signal engine — confluence scoring for BUY / SELL / WAIT.
 
 Swing: full SMC/ICT checklist (classic desk).
+Intraday: H4/H1 bias, M15 entry, session + OB/FVG, optional M5 confirm.
 Scalp: lighter LTF checklist + kill-zone + spread + optional M1 confirm.
 """
 
@@ -157,10 +158,15 @@ class SignalEngine:
         if smc.structure_events:
             structure_desc = smc.structure_events[-1].description
 
-        # Scalp spread gate (before scoring waste)
-        if self._mode() == TradingMode.SCALP:
+        # Spread gate for fast modes (before scoring waste)
+        if self._mode() in {TradingMode.SCALP, TradingMode.INTRADAY}:
             atr_stop = atr * CONFIG.risk.atr_sl_multiplier
-            max_spread = atr_stop * CONFIG.signal.scalp_max_spread_atr_frac
+            frac = (
+                CONFIG.signal.scalp_max_spread_atr_frac
+                if self._mode() == TradingMode.SCALP
+                else CONFIG.signal.intraday_max_spread_atr_frac
+            )
+            max_spread = atr_stop * frac
             if atr_stop > 0 and analysis.spread > max_spread:
                 return self._base_meta(
                     analysis,
@@ -171,7 +177,7 @@ class SignalEngine:
                     news_reason,
                     confidence=max(0.0, 100.0 * (1.0 - analysis.spread / max(atr_stop, 1e-9))),
                     reasons=[f"Spread {analysis.spread:.2f} vs max {max_spread:.2f}"],
-                    failed=["Spread too wide for scalp"],
+                    failed=[f"Spread too wide for {self._mode().value}"],
                 )
 
         if self._mode() == TradingMode.SCALP:
@@ -179,6 +185,13 @@ class SignalEngine:
                 analysis, tf_data, price, rsi, macd_hist, macd_hist_prev, obv_rising, blocked
             )
             bear_score, bear_reasons, bear_fail, bear_feat = self._score_sell_scalp(
+                analysis, tf_data, price, rsi, macd_hist, macd_hist_prev, obv_falling, blocked
+            )
+        elif self._mode() == TradingMode.INTRADAY:
+            bull_score, bull_reasons, bull_fail, bull_feat = self._score_buy_intraday(
+                analysis, tf_data, price, rsi, macd_hist, macd_hist_prev, obv_rising, blocked
+            )
+            bear_score, bear_reasons, bear_fail, bear_feat = self._score_sell_intraday(
                 analysis, tf_data, price, rsi, macd_hist, macd_hist_prev, obv_falling, blocked
             )
         else:
@@ -248,13 +261,10 @@ class SignalEngine:
                 features=bull_feat if bull_score >= bear_score else bear_feat,
             )
 
-        # Optional M1 confirmation for scalp (entry is M5)
-        if (
-            self._mode() == TradingMode.SCALP
-            and CONFIG.signal.scalp_require_m1_confirm
-            and CONFIG.confirm_timeframe is not None
-        ):
-            ok, note = self._m1_confirms(analysis, direction)
+        # Optional LTF confirmation (scalp M1 / intraday M5)
+        # Scalp: hard-require M1 when flag is on. Intraday: M5 confirm is a bonus, never a hard block.
+        if self._mode() == TradingMode.SCALP and CONFIG.signal.scalp_require_m1_confirm and CONFIG.confirm_timeframe is not None:
+            ok, note = self._ltf_confirms(analysis, direction)
             if ok:
                 reasons.append(note)
                 features["M1_Confirm"] = True
@@ -272,6 +282,14 @@ class SignalEngine:
                     failed=failed + [note],
                     features=features,
                 )
+        elif self._mode() == TradingMode.INTRADAY and CONFIG.confirm_timeframe is not None:
+            ok, note = self._ltf_confirms(analysis, direction)
+            features["M1_Confirm"] = ok
+            if ok:
+                reasons.append(note)
+                confidence = min(100.0, confidence + 4.0)
+            else:
+                failed.append(note)
 
         sl_override = None
         ob = nearest_unmitigated_ob(smc, bullish=(direction == Direction.BUY), price=price)
@@ -316,28 +334,271 @@ class SignalEngine:
             features=features,
         )
 
-    def _m1_confirms(self, analysis: TopDownAnalysis, direction: Direction) -> tuple[bool, str]:
+    def _ltf_confirms(self, analysis: TopDownAnalysis, direction: Direction) -> tuple[bool, str]:
         ctf = CONFIG.confirm_timeframe
+        label = ctf.value if ctf else "LTF"
         frame = analysis.frames.get(ctf) if ctf else None
         if frame is None:
-            return False, f"{ctf.value if ctf else 'M1'} confirm missing"
-        # Prefer last candle direction from patterns / SuperTrend
+            return False, f"{label} confirm missing"
         st = float(frame.indicators.supertrend_dir.iloc[-1])
         if direction == Direction.BUY:
             if st > 0 or frame.trend == TrendBias.BULLISH:
-                return True, "M1 confirm bullish"
-            # Soft: last pattern bullish
+                return True, f"{label} confirm bullish"
             if any(p.bullish for p in frame.patterns[-3:]):
-                return True, "M1 bullish candle confirm"
-            return False, "M1 not confirming BUY"
+                return True, f"{label} bullish candle confirm"
+            return False, f"{label} not confirming BUY"
         if st < 0 or frame.trend == TrendBias.BEARISH:
-            return True, "M1 confirm bearish"
+            return True, f"{label} confirm bearish"
         if any((not p.bullish) for p in frame.patterns[-3:]):
-            return True, "M1 bearish candle confirm"
-        return False, "M1 not confirming SELL"
+            return True, f"{label} bearish candle confirm"
+        return False, f"{label} not confirming SELL"
 
     def _in_kill_zone(self, ict) -> bool:
         return bool(ict and (ict.session.in_london_kz or ict.session.in_ny_kz))
+
+    # ------------------------------------------------------------------ INTRADAY
+    def _score_buy_intraday(
+        self,
+        analysis: TopDownAnalysis,
+        tf_data,
+        price: float,
+        rsi: float,
+        macd_hist: float,
+        macd_hist_prev: float,
+        vol_ok: bool,
+        news_blocked: bool,
+    ) -> tuple[float, list[str], list[str], dict[str, bool]]:
+        """H4/H1 bias + M15 structure, session bonus, OB/FVG for same-day trades."""
+        reasons: list[str] = []
+        failed: list[str] = []
+        features: dict[str, bool] = {}
+        score = 0.0
+        smc = tf_data.smc
+        ict = tf_data.ict
+        ind = tf_data.indicators
+        cfg = CONFIG.signal
+        atr = float(ind.atr.iloc[-1])
+
+        kz = self._in_kill_zone(ict)
+        features["Kill_Zone"] = kz
+        if cfg.intraday_require_session and not kz:
+            failed.append("London/NY session required")
+        elif kz:
+            score += self._p("Kill_Zone", 12)
+            reasons.append("London/NY session")
+
+        above_ema = price > float(ind.ema50.iloc[-1])
+        bias_ok = analysis.aligned_bullish or (
+            analysis.higher_tf_bias == TrendBias.BULLISH and above_ema
+        )
+        features["Bias"] = bool(bias_ok)
+        features["EMA_HTF_Trend"] = bool(bias_ok)
+        if bias_ok:
+            score += self._p("Bias", 18)
+            reasons.append("H4/H1 bullish bias")
+        else:
+            failed.append("Bullish HTF bias")
+
+        struct_ok = smc.trend == TrendBias.BULLISH or smc.last_bos_bullish is True
+        features["Market_Structure"] = bool(struct_ok)
+        if struct_ok:
+            score += self._p("Market_Structure", 14)
+            reasons.append("Bullish structure / BOS")
+        else:
+            failed.append("Bullish structure")
+
+        sweep_ok = bool(smc.liquidity_sweep_bullish or (ict and ict.judas_swing_bullish))
+        features["Liquidity_Sweep"] = sweep_ok
+        if sweep_ok:
+            score += self._p("Liquidity_Sweep", 10)
+            reasons.append("Liquidity / Judas sweep")
+        else:
+            failed.append("Liquidity sweep")
+
+        ob = nearest_unmitigated_ob(smc, True, price)
+        ob_ok = ob is not None and price_in_zone(price, ob, pad=atr * 0.6)
+        features["Order_Block"] = bool(ob_ok)
+        if ob_ok:
+            score += self._p("Order_Block", 12)
+            reasons.append("Bullish order block")
+        else:
+            failed.append("Order block")
+
+        fvg = nearest_fvg(smc, True, price)
+        fvg_ok = fvg is not None
+        features["FVG"] = fvg_ok
+        if fvg_ok:
+            score += self._p("FVG", 8)
+            reasons.append("Nearby bullish FVG")
+
+        bullish_patterns = {
+            CandlePattern.ENGULFING,
+            CandlePattern.PIN_BAR,
+            CandlePattern.HAMMER,
+            CandlePattern.MORNING_STAR,
+            CandlePattern.TWEEZER_BOTTOM,
+        }
+        pat_ok = any(p.bullish and p.pattern in bullish_patterns for p in tf_data.patterns[-6:])
+        features["Candle"] = bool(pat_ok)
+        if pat_ok:
+            score += self._p("Candle", 8)
+            reasons.append("Bullish candle")
+        else:
+            failed.append("Bullish candle")
+
+        rsi_ok = rsi <= cfg.rsi_oversold or (rsi < 55 and rsi > float(ind.rsi.iloc[-3]))
+        features["RSI"] = bool(rsi_ok)
+        if rsi_ok:
+            score += self._p("RSI", 8)
+            reasons.append("RSI confirmation")
+        else:
+            failed.append("RSI confirmation")
+
+        macd_ok = macd_hist > 0 or macd_hist > macd_hist_prev
+        features["MACD"] = macd_ok
+        if macd_ok:
+            score += self._p("MACD", 6)
+            reasons.append("MACD turning up")
+        features["Volume"] = bool(vol_ok)
+        if vol_ok:
+            score += self._p("Volume", 4)
+            reasons.append("Volume up")
+        st = float(ind.supertrend_dir.iloc[-1]) > 0
+        features["SuperTrend"] = st
+        if st:
+            score += self._p("SuperTrend", 4)
+            reasons.append("SuperTrend bullish")
+
+        score += self._p("Risk_Reward", 5)
+        features["Risk_Reward"] = True
+        reasons.append("Risk Reward ≥ 1:1.5 (pending plan)")
+
+        if cfg.intraday_require_session and not kz:
+            score *= 0.55
+        if news_blocked:
+            score = 0
+        return clamp(score, 0, 100), reasons, failed, features
+
+    def _score_sell_intraday(
+        self,
+        analysis: TopDownAnalysis,
+        tf_data,
+        price: float,
+        rsi: float,
+        macd_hist: float,
+        macd_hist_prev: float,
+        vol_ok: bool,
+        news_blocked: bool,
+    ) -> tuple[float, list[str], list[str], dict[str, bool]]:
+        reasons: list[str] = []
+        failed: list[str] = []
+        features: dict[str, bool] = {}
+        score = 0.0
+        smc = tf_data.smc
+        ict = tf_data.ict
+        ind = tf_data.indicators
+        cfg = CONFIG.signal
+        atr = float(ind.atr.iloc[-1])
+
+        kz = self._in_kill_zone(ict)
+        features["Kill_Zone"] = kz
+        if cfg.intraday_require_session and not kz:
+            failed.append("London/NY session required")
+        elif kz:
+            score += self._p("Kill_Zone", 12)
+            reasons.append("London/NY session")
+
+        below_ema = price < float(ind.ema50.iloc[-1])
+        bias_ok = analysis.aligned_bearish or (
+            analysis.higher_tf_bias == TrendBias.BEARISH and below_ema
+        )
+        features["Bias"] = bool(bias_ok)
+        features["EMA_HTF_Trend"] = bool(bias_ok)
+        if bias_ok:
+            score += self._p("Bias", 18)
+            reasons.append("H4/H1 bearish bias")
+        else:
+            failed.append("Bearish HTF bias")
+
+        struct_ok = smc.trend == TrendBias.BEARISH or smc.last_bos_bullish is False
+        features["Market_Structure"] = bool(struct_ok)
+        if struct_ok:
+            score += self._p("Market_Structure", 14)
+            reasons.append("Bearish structure / BOS")
+        else:
+            failed.append("Bearish structure")
+
+        sweep_ok = bool(smc.liquidity_sweep_bearish or (ict and ict.judas_swing_bearish))
+        features["Liquidity_Sweep"] = sweep_ok
+        if sweep_ok:
+            score += self._p("Liquidity_Sweep", 10)
+            reasons.append("Liquidity / Judas sweep")
+        else:
+            failed.append("Liquidity sweep")
+
+        ob = nearest_unmitigated_ob(smc, False, price)
+        ob_ok = ob is not None and price_in_zone(price, ob, pad=atr * 0.6)
+        features["Order_Block"] = bool(ob_ok)
+        if ob_ok:
+            score += self._p("Order_Block", 12)
+            reasons.append("Bearish order block")
+        else:
+            failed.append("Order block")
+
+        fvg = nearest_fvg(smc, False, price)
+        fvg_ok = fvg is not None
+        features["FVG"] = fvg_ok
+        if fvg_ok:
+            score += self._p("FVG", 8)
+            reasons.append("Nearby bearish FVG")
+
+        bearish_patterns = {
+            CandlePattern.ENGULFING,
+            CandlePattern.PIN_BAR,
+            CandlePattern.SHOOTING_STAR,
+            CandlePattern.EVENING_STAR,
+            CandlePattern.TWEEZER_TOP,
+        }
+        pat_ok = any((not p.bullish) and p.pattern in bearish_patterns for p in tf_data.patterns[-6:])
+        features["Candle"] = bool(pat_ok)
+        if pat_ok:
+            score += self._p("Candle", 8)
+            reasons.append("Bearish candle")
+        else:
+            failed.append("Bearish candle")
+
+        rsi_ok = rsi >= cfg.rsi_overbought or (rsi > 45 and rsi < float(ind.rsi.iloc[-3]))
+        features["RSI"] = bool(rsi_ok)
+        if rsi_ok:
+            score += self._p("RSI", 8)
+            reasons.append("RSI confirmation")
+        else:
+            failed.append("RSI confirmation")
+
+        macd_ok = macd_hist < 0 or macd_hist < macd_hist_prev
+        features["MACD"] = macd_ok
+        if macd_ok:
+            score += self._p("MACD", 6)
+            reasons.append("MACD turning down")
+        features["Volume"] = bool(vol_ok)
+        if vol_ok:
+            score += self._p("Volume", 4)
+            reasons.append("Volume up")
+        st = float(ind.supertrend_dir.iloc[-1]) < 0
+        features["SuperTrend"] = st
+        if st:
+            score += self._p("SuperTrend", 4)
+            reasons.append("SuperTrend bearish")
+
+        score += self._p("Risk_Reward", 5)
+        features["Risk_Reward"] = True
+        reasons.append("Risk Reward ≥ 1:1.5 (pending plan)")
+
+        if cfg.intraday_require_session and not kz:
+            score *= 0.55
+        if news_blocked:
+            score = 0
+        return clamp(score, 0, 100), reasons, failed, features
 
     # ------------------------------------------------------------------ SCALP
     def _score_buy_scalp(

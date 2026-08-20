@@ -61,6 +61,7 @@ class MarketLearner:
         self.path = path or LEARNING_PATH
         self.modes: dict[str, ModeStats] = {
             TradingMode.SWING.value: ModeStats(),
+            TradingMode.INTRADAY.value: ModeStats(),
             TradingMode.SCALP.value: ModeStats(),
         }
         for m in self.modes.values():
@@ -83,10 +84,18 @@ class MarketLearner:
                 )
                 st.ensure()
                 self.modes[key] = st
+            for key in (
+                TradingMode.SWING.value,
+                TradingMode.INTRADAY.value,
+                TradingMode.SCALP.value,
+            ):
+                self.modes.setdefault(key, ModeStats()).ensure()
             logger.info(
-                "Loaded learning swing=%s/%s scalp=%s/%s",
+                "Loaded learning swing=%s/%s intrad=%s/%s scalp=%s/%s",
                 self.modes["swing"].wins,
                 self.modes["swing"].resolved,
+                self.modes.get("intraday", ModeStats()).wins,
+                self.modes.get("intraday", ModeStats()).resolved,
                 self.modes["scalp"].wins,
                 self.modes["scalp"].resolved,
             )
@@ -149,7 +158,11 @@ class MarketLearner:
 
     def summary_both(self) -> str:
         parts = []
-        for mode in (TradingMode.SWING.value, TradingMode.SCALP.value):
+        for mode in (
+            TradingMode.SWING.value,
+            TradingMode.INTRADAY.value,
+            TradingMode.SCALP.value,
+        ):
             w, n, wr = self.win_rate(mode)
             parts.append(f"{mode[:2].upper()} {w}/{n} ({wr:.0f}%)")
         return "WR " + " | ".join(parts)
@@ -158,6 +171,7 @@ class MarketLearner:
         """Wipe all learned weights and win/loss memory."""
         self.modes = {
             TradingMode.SWING.value: ModeStats(),
+            TradingMode.INTRADAY.value: ModeStats(),
             TradingMode.SCALP.value: ModeStats(),
         }
         for m in self.modes.values():

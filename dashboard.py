@@ -475,11 +475,13 @@ class Dashboard(QMainWindow):
         mode_lbl.setObjectName("metricName")
         mode_box = QComboBox()
         mode_box.addItem("Swing", TradingMode.SWING.value)
+        mode_box.addItem("Intraday", TradingMode.INTRADAY.value)
         mode_box.addItem("Scalp", TradingMode.SCALP.value)
-        idx = 0 if CONFIG.trading_mode == TradingMode.SWING else 1
-        mode_box.setCurrentIndex(idx)
+        idx = mode_box.findData(CONFIG.trading_mode.value)
+        mode_box.setCurrentIndex(idx if idx >= 0 else 0)
         mode_box.setToolTip(
-            "Swing = full HTF confluence M15 · Scalp = M5 entry + M1 confirm, kill-zone, spread filter"
+            "Swing = HTF confluence M15 · Intraday = H4/H1 bias, M15 entry + M5 confirm · "
+            "Scalp = M5 entry + M1 confirm, kill-zone"
         )
         mode_box.currentIndexChanged.connect(self._on_mode_changed)
         self.mode_box = mode_box
@@ -624,6 +626,13 @@ class Dashboard(QMainWindow):
             return (
                 f"SCALP · Entry {CONFIG.entry_timeframe.value} + {confirm} confirm · "
                 f"KZ required · thr {CONFIG.signal.min_confidence:.0f}% · "
+                f"R:R ≥ {CONFIG.risk.min_risk_reward:.1f}"
+            )
+        if CONFIG.trading_mode == TradingMode.INTRADAY:
+            confirm = CONFIG.confirm_timeframe.value if CONFIG.confirm_timeframe else "-"
+            return (
+                f"INTRADAY · Entry {CONFIG.entry_timeframe.value} + {confirm} confirm · "
+                f"H4/H1 bias · thr {CONFIG.signal.min_confidence:.0f}% · "
                 f"R:R ≥ {CONFIG.risk.min_risk_reward:.1f}"
             )
         return (
