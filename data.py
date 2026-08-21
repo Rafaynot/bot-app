@@ -113,6 +113,56 @@ class TickQuote:
 
 
 @dataclass
+class BookLevel:
+    """Single order-book price level."""
+
+    price: float
+    amount: float
+    total: float = 0.0
+
+
+@dataclass
+class OrderBookSnapshot:
+    """Bids (high→low) and asks (low→high) for the depth panel."""
+
+    bids: list[BookLevel] = field(default_factory=list)
+    asks: list[BookLevel] = field(default_factory=list)
+
+
+def _with_cumulative(levels: list[BookLevel]) -> list[BookLevel]:
+    running = 0.0
+    out: list[BookLevel] = []
+    for lvl in levels:
+        running += lvl.amount
+        out.append(BookLevel(price=lvl.price, amount=lvl.amount, total=running))
+    return out
+
+
+def synthetic_order_book(bid: float, ask: float, depth: int = 20, tick: float = 0.01) -> OrderBookSnapshot:
+    """Ladder around the spread so the UI always has a Binance-style book."""
+    rng = np.random.default_rng()
+    asks: list[BookLevel] = []
+    bids: list[BookLevel] = []
+    for i in range(depth):
+        asks.append(
+            BookLevel(
+                price=round(ask + (i + 1) * tick, 8),
+                amount=float(max(0.01, rng.uniform(0.04, 1.6) * (1.0 + i * 0.04))),
+            )
+        )
+        bids.append(
+            BookLevel(
+                price=round(bid - (i + 1) * tick, 8),
+                amount=float(max(0.01, rng.uniform(0.04, 1.6) * (1.0 + i * 0.04))),
+            )
+        )
+    return OrderBookSnapshot(
+        bids=_with_cumulative(bids),
+        asks=_with_cumulative(asks),
+    )
+
+
+@dataclass
 class MarketSnapshot:
     """Multi-timeframe OHLCV bundle plus live quote."""
 
@@ -153,7 +203,12 @@ def normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
         out = out.set_index("time")
     out = out.sort_index()
     out = out[~out.index.duplicated(keep="last")]
-    return out[["open", "high", "low", "close", "volume"]].astype(float)
+    keep = ["open", "high", "low", "close", "volume"]
+    for extra in ("taker_buy", "trades"):
+        if extra in out.columns:
+            keep.append(extra)
+            out[extra] = out[extra].astype(float)
+    return out[keep].astype({c: float for c in keep if c in out.columns})
 
 
 class DataProvider(ABC):
@@ -178,6 +233,33 @@ class DataProvider(ABC):
     @abstractmethod
     def get_quote(self, symbol: str) -> TickQuote:
         ...
+
+    def get_order_book(self, symbol: str, depth: int = 20) -> OrderBookSnapshot:
+        """Best-effort depth; falls back to a synthetic ladder from the quote."""
+        quote = self.get_quote(symbol)
+        tick = 0.01 if quote.mid < 50_000 else 0.01
+        if quote.mid >= 10_000:
+            tick = 0.01
+        elif quote.mid >= 100:
+            tick = 0.01
+        else:
+            tick = 0.0001
+        return synthetic_order_book(quote.bid, quote.ask, depth, tick)
+
+    def get_accuracy_feed(
+        self,
+        symbol: str,
+        df: pd.DataFrame | None = None,
+        book: OrderBookSnapshot | None = None,
+    ) -> object:
+        from accuracy import compute_ohlc_accuracy
+
+        if df is None:
+            try:
+                df = self.get_ohlcv(symbol, TimeFrame.M5, 400)
+            except Exception:  # noqa: BLE001
+                df = pd.DataFrame()
+        return compute_ohlc_accuracy(df, book)
 
     def fetch_snapshot(
         self,
@@ -333,6 +415,36 @@ class MT5Provider(DataProvider):
             volume=float(getattr(tick, "volume", 0) or 0),
         )
 
+    def get_order_book(self, symbol: str, depth: int = 20) -> OrderBookSnapshot:
+        if not self.is_connected():
+            raise RuntimeError("MT5 not connected")
+        sym = self._resolved_symbol or symbol
+        try:
+            self._mt5.market_book_add(sym)
+            raw = self._mt5.market_book_get(sym)
+        except Exception:  # noqa: BLE001
+            raw = None
+        if not raw:
+            return super().get_order_book(symbol, depth)
+        asks: list[BookLevel] = []
+        bids: list[BookLevel] = []
+        for item in raw:
+            kind = int(item.type)
+            price = float(item.price)
+            amount = float(getattr(item, "volume_dbl", 0) or item.volume or 0)
+            if kind in (1, 3):  # sell / sell market
+                asks.append(BookLevel(price=price, amount=amount))
+            elif kind in (2, 4):  # buy / buy market
+                bids.append(BookLevel(price=price, amount=amount))
+        asks.sort(key=lambda x: x.price)
+        bids.sort(key=lambda x: x.price, reverse=True)
+        if not asks or not bids:
+            return super().get_order_book(symbol, depth)
+        return OrderBookSnapshot(
+            bids=_with_cumulative(bids[:depth]),
+            asks=_with_cumulative(asks[:depth]),
+        )
+
 
 # Binance symbols that exist on USDT-M futures but not spot
 BINANCE_FUTURES_SYMBOLS: frozenset[str] = frozenset({"XAUUSDT"})
@@ -403,6 +515,8 @@ class BinanceProvider(DataProvider):
                 "low": float(k[3]),
                 "close": float(k[4]),
                 "volume": float(k[5]),
+                "taker_buy": float(k[9]) if len(k) > 9 else 0.0,
+                "trades": float(k[8]) if len(k) > 8 else 0.0,
             }
             for k in raw
         ]
@@ -425,6 +539,137 @@ class BinanceProvider(DataProvider):
             ask=float(data["askPrice"]),
             time=utc_now(),
         )
+
+    def get_order_book(self, symbol: str, depth: int = 20) -> OrderBookSnapshot:
+        if not self.is_connected():
+            raise RuntimeError("Binance not connected")
+        sym = symbol or self.cfg.symbol
+        limit = 20 if depth <= 20 else 50 if depth <= 50 else 100
+        try:
+            r = self._session.get(
+                f"{self.cfg.base_url}{self._api_prefix()}/depth",
+                params={"symbol": sym, "limit": limit},
+                timeout=10,
+            )
+            r.raise_for_status()
+            data = r.json()
+            asks = [
+                BookLevel(price=float(p), amount=float(a))
+                for p, a in data.get("asks", [])[:depth]
+            ]
+            bids = [
+                BookLevel(price=float(p), amount=float(a))
+                for p, a in data.get("bids", [])[:depth]
+            ]
+            if asks and bids:
+                return OrderBookSnapshot(
+                    bids=_with_cumulative(bids),
+                    asks=_with_cumulative(asks),
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Binance depth fallback: %s", exc)
+        return super().get_order_book(symbol, depth)
+
+    def _get_json(self, url: str, params: dict | None = None, timeout: int = 8) -> object | None:
+        try:
+            r = self._session.get(url, params=params or {}, timeout=timeout)
+            r.raise_for_status()
+            return r.json()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Binance extra feed skip %s: %s", url, exc)
+            return None
+
+    def get_accuracy_feed(
+        self,
+        symbol: str,
+        df: pd.DataFrame | None = None,
+        book: OrderBookSnapshot | None = None,
+    ) -> object:
+        from accuracy import LiqCluster, compute_ohlc_accuracy
+
+        sym = symbol or self.cfg.symbol
+        feed = compute_ohlc_accuracy(df if df is not None else pd.DataFrame(), book)
+        if self.cfg.market != "futures" or not self.is_connected():
+            return feed
+        feed.source = "binance-futures"
+        prem = self._get_json(
+            f"{self.cfg.futures_url}/fapi/v1/premiumIndex", {"symbol": sym}
+        )
+        if isinstance(prem, dict):
+            try:
+                feed.funding_rate = float(prem.get("lastFundingRate") or 0)
+                feed.mark_price = float(prem.get("markPrice") or 0) or None
+                nft = prem.get("nextFundingTime")
+                if nft:
+                    feed.next_funding_ts = datetime.fromtimestamp(int(nft) / 1000, tz=timezone.utc)
+                feed.notes.append(f"Funding {feed.funding_rate * 100:.4f}%")
+            except Exception:  # noqa: BLE001
+                pass
+        oi = self._get_json(f"{self.cfg.futures_url}/fapi/v1/openInterest", {"symbol": sym})
+        hist = self._get_json(
+            f"{self.cfg.futures_url}/futures/data/openInterestHist",
+            {"symbol": sym, "period": "5m", "limit": 30},
+        )
+        if isinstance(oi, dict):
+            try:
+                feed.open_interest = float(oi.get("openInterest") or 0)
+            except Exception:  # noqa: BLE001
+                pass
+        if isinstance(hist, list) and len(hist) >= 2:
+            try:
+                first = float(hist[0].get("sumOpenInterest") or 0)
+                last = float(hist[-1].get("sumOpenInterest") or 0)
+                if feed.open_interest is None:
+                    feed.open_interest = last
+                if first:
+                    feed.oi_change_pct = (last - first) / first * 100.0
+                    feed.notes.append(f"OI Δ {feed.oi_change_pct:+.2f}%")
+            except Exception:  # noqa: BLE001
+                pass
+        lsr = self._get_json(
+            f"{self.cfg.futures_url}/futures/data/globalLongShortAccountRatio",
+            {"symbol": sym, "period": "5m", "limit": 1},
+        )
+        if isinstance(lsr, list) and lsr:
+            try:
+                feed.long_short_ratio = float(lsr[-1].get("longShortRatio") or 0)
+            except Exception:  # noqa: BLE001
+                pass
+        taker = self._get_json(
+            f"{self.cfg.futures_url}/futures/data/takerlongshortRatio",
+            {"symbol": sym, "period": "5m", "limit": 12},
+        )
+        if isinstance(taker, list) and taker:
+            try:
+                last_ratio = float(taker[-1].get("buySellRatio") or 0)
+                feed.taker_buy_sell = last_ratio or None
+                if feed.taker_buy_sell:
+                    feed.notes.append(f"Taker {feed.taker_buy_sell:.2f}")
+            except Exception:  # noqa: BLE001
+                pass
+        force = self._get_json(
+            f"{self.cfg.futures_url}/fapi/v1/allForceOrders",
+            {"symbol": sym, "limit": 50},
+        )
+        if isinstance(force, list) and force:
+            buckets: dict[float, float] = {}
+            for item in force:
+                try:
+                    px = float(item.get("price") or item.get("avgPrice") or 0)
+                    qty = float(item.get("origQty") or item.get("executedQty") or 0)
+                    if px <= 0 or qty <= 0:
+                        continue
+                    key = round(px, 1)
+                    buckets[key] = buckets.get(key, 0.0) + qty
+                except Exception:  # noqa: BLE001
+                    continue
+            top = sorted(buckets.items(), key=lambda kv: kv[1], reverse=True)[:6]
+            for px, qty in top:
+                feed.clusters.append(
+                    LiqCluster(price=px, volume=qty, side="liq", label="Liq")
+                )
+            feed.notes.append(f"{len(force)} liquidations clustered")
+        return feed
 
 
 class DemoProvider(DataProvider):

@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-08-20T13:45:15.726185+00:00",
+  "updated_at": "2026-08-20T15:04:52.319491+00:00",
   "modes": {
     "swing": {
       "wins": 0,
@@ -57,9 +57,9 @@
       }
     },
     "scalp": {
-      "wins": 44,
+      "wins": 48,
       "losses": 13,
-      "resolved": 57,
+      "resolved": 61,
       "recent": [
         "WIN",
         "WIN",
@@ -92,10 +92,6 @@
         "WIN",
         "WIN",
         "WIN",
-        "WIN",
-        "WIN",
-        "WIN",
-        "WIN",
         "LOSS",
         "LOSS",
         "LOSS",
@@ -110,26 +106,30 @@
         "LOSS",
         "WIN",
         "LOSS",
+        "WIN",
+        "WIN",
+        "WIN",
+        "WIN",
         "WIN"
       ],
       "mult": {
         "EMA_HTF_Trend": 1.0,
-        "Market_Structure": 1.2999999999999994,
+        "Market_Structure": 1.5799999999999996,
         "Liquidity_Sweep": 1.0,
         "Order_Block": 1.0,
-        "FVG": 1.2299999999999993,
-        "Candle": 1.2299999999999993,
+        "FVG": 1.5099999999999996,
+        "Candle": 1.5099999999999996,
         "RSI": 0.9299999999999999,
-        "MACD": 1.3699999999999994,
-        "Volume": 1.4399999999999995,
-        "Kill_Zone": 1.2299999999999993,
+        "MACD": 1.6499999999999997,
+        "Volume": 1.7199999999999998,
+        "Kill_Zone": 1.5099999999999996,
         "OTE": 1.0,
         "Po3": 1.0,
         "Discount_Premium": 1.0,
-        "SuperTrend": 1.2999999999999994,
-        "Risk_Reward": 1.2299999999999993,
-        "M1_Confirm": 1.2299999999999993,
-        "Bias": 1.4399999999999995
+        "SuperTrend": 1.5799999999999996,
+        "Risk_Reward": 1.5099999999999996,
+        "M1_Confirm": 1.5099999999999996,
+        "Bias": 1.7199999999999998
       }
     }
   }

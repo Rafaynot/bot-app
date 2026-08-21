@@ -158,6 +158,23 @@ class SignalEngine:
         if smc.structure_events:
             structure_desc = smc.structure_events[-1].description
 
+        if self._mode() == TradingMode.PREDICT:
+            fc = getattr(analysis, "_forecast", None)
+            conf = float(getattr(fc, "confidence", 0.0) or 0.0)
+            reasons = [getattr(fc, "headline", None) or "PREDICT mode — see Prediction page"]
+            return self._base_meta(
+                analysis,
+                tf_data,
+                atr,
+                session_name,
+                structure_desc,
+                news_reason,
+                confidence=conf,
+                reasons=reasons,
+                failed=["Predict mode does not fire BUY/SELL alerts"],
+                direction=Direction.WAIT,
+            )
+
         # Spread gate for fast modes (before scoring waste)
         if self._mode() in {TradingMode.SCALP, TradingMode.INTRADAY}:
             atr_stop = atr * CONFIG.risk.atr_sl_multiplier
@@ -201,6 +218,21 @@ class SignalEngine:
             bear_score, bear_reasons, bear_fail, bear_feat = self._score_sell(
                 analysis, tf_data, price, rsi, macd_hist, macd_hist_prev, obv_falling, blocked
             )
+
+        acc = getattr(analysis, "_accuracy", None)
+        if acc is not None:
+            from accuracy import score_accuracy
+
+            b_pts, b_why, b_miss, b_ft = score_accuracy(acc, Direction.BUY, price, atr)
+            s_pts, s_why, s_miss, s_ft = score_accuracy(acc, Direction.SELL, price, atr)
+            bull_score = max(0.0, min(100.0, bull_score + b_pts))
+            bear_score = max(0.0, min(100.0, bear_score + s_pts))
+            bull_reasons.extend(b_why)
+            bear_reasons.extend(s_why)
+            bull_fail.extend(b_miss)
+            bear_fail.extend(s_miss)
+            bull_feat.update(b_ft)
+            bear_feat.update(s_ft)
 
         thr = self._thr()
 

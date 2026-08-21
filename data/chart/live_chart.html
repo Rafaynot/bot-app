@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<script src="plotly.min.js"></script>
+<style>
+  html, body { margin:0; padding:0; height:100%; width:100%; background:#fff; overflow:hidden; }
+  .wrap { position:relative; height:100%; width:100%; display:flex; }
+  .rail {
+    width:40px; flex:0 0 40px; height:100%; border-right:1px solid #eaecef;
+    background:#fff; display:flex; flex-direction:column; align-items:center;
+    padding:8px 0; gap:2px; z-index:30; user-select:none;
+  }
+  .rail button {
+    width:32px; height:32px; border:none; background:transparent; color:#707a8a;
+    cursor:pointer; border-radius:4px; font-size:14px; line-height:32px; padding:0;
+    font-family: 'Segoe UI', sans-serif;
+  }
+  .rail button:hover { background:#f5f5f5; color:#1e2329; }
+  .rail button.on { color:#f0b90b; background:#fef6d5; }
+  .rail .gap { height:8px; }
+  .stage { position:relative; flex:1; height:100%; min-width:0; }
+  .overlay {
+    position:absolute; top:8px; left:12px; z-index:50; pointer-events:none;
+    font: 12px/1.5 'IBM Plex Sans','Segoe UI',sans-serif; color:#707a8a;
+    background: rgba(255,255,255,0.97);
+    border: 1px solid #eaecef;
+    border-radius: 4px;
+    padding: 6px 10px;
+    max-width: min(72%, 780px);
+    box-shadow: 0 1px 4px rgba(0,0,0,.05);
+  }
+  .overlay .ohlc span { margin-right:10px; }
+  .overlay .levels span { margin-right:12px; white-space:nowrap; }
+  .overlay .notes { font-size:11px; color:#707a8a; }
+  .ma7 { color:#f0b90b; } .ma25 { color:#e040fb; } .ma99 { color:#7c4dff; }
+  .up { color:#0ecb81; } .dn { color:#f6465d; }
+  .toast {
+    position:absolute; top:8px; right:64px; z-index:60; display:none;
+    padding:10px 14px; border-radius:4px; color:#fff; max-width:440px;
+    font: 12px/1.4 'Segoe UI', sans-serif;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.16); pointer-events:none;
+  }
+  .toast.buy { background:#0ecb81; }
+  .toast.sell { background:#f6465d; }
+  .toast .flow { margin-top:4px; font-weight:400; opacity:0.95; }
+  #g, .plotly-graph-div, .js-plotly-plot, .plot-container, .svg-container {
+    height:100% !important; width:100% !important;
+  }
+  .tip {
+    position:absolute; left:46px; background:#1e2329; color:#fff; font:11px Segoe UI;
+    padding:4px 8px; border-radius:3px; display:none; z-index:40; white-space:nowrap;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="rail" id="rail">
+    <button data-tool="cursor" title="Crosshair / Zoom">✚</button>
+    <button data-tool="pan" title="Pan">✋</button>
+    <div class="gap"></div>
+    <button data-tool="trend" title="Trend line">╱</button>
+    <button data-tool="hline" title="Horizontal line">─</button>
+    <button data-tool="vline" title="Vertical line">│</button>
+    <button data-tool="ray" title="Ray">↗</button>
+    <div class="gap"></div>
+    <button data-tool="rect" title="Rectangle">▭</button>
+    <button data-tool="circle" title="Circle">○</button>
+    <button data-tool="triangle" title="Triangle">△</button>
+    <button data-tool="brush" title="Brush">✎</button>
+    <div class="gap"></div>
+    <button data-tool="fib" title="Fibonacci">Fib</button>
+    <button data-tool="arrow" title="Arrow mark">▲</button>
+    <button data-tool="text" title="Text">A</button>
+    <div class="gap"></div>
+    <button data-tool="erase" title="Eraser">⌫</button>
+    <button data-tool="clear" title="Clear drawings">🗑</button>
+  </div>
+  <div class="stage">
+    <div class="overlay" id="overlay">Waiting for chart data…</div>
+    <div class="toast" id="toast"></div>
+    <div id="g"></div>
+  </div>
+</div>
+<script>
+const GREEN = "#0ecb81";
+const RED = "#f6465d";
+const YELLOW = "#f0b90b";
+let currentTool = "cursor";
+let currentMode = "";
+let drawing = false;
+let appRelayout = false;
+let lastOverlay = "";
+let followRight = true;
+
+const CONFIG = {
+  displayModeBar: false,
+  displaylogo: false,
+  responsive: true,
+  scrollZoom: true,
+  edits: { shapePosition: true, annotationPosition: true, annotationText: true }
+};
+
+const NEWSHAPE = {
+  line: { color: YELLOW, width: 1.5 },
+  fillcolor: "rgba(240,185,11,0.12)",
+  opacity: 1,
+  layer: "above"
+};
+
+function baseLayout(tickformat, uirev) {
+  return {
+    paper_bgcolor: "#fff",
+    plot_bgcolor: "#fff",
+    font: { family: "Segoe UI, Arial", color: "#707a8a", size: 11 },
+    margin: { l: 8, r: 56, t: 8, b: 8 },
+    showlegend: false,
+    hovermode: "x unified",
+    autosize: true,
+    dragmode: "zoom",
+    uirevision: uirev,
+    newshape: Object.assign({}, NEWSHAPE),
+    activeshape: { fillcolor: "rgba(240,185,11,0.2)" },
+    xaxis: {
+      rangeslider: { visible: false },
+      showgrid: true, gridcolor: "#f0f1f2", linecolor: "#eaecef",
+      tickformat: tickformat, showspikes: true, spikemode: "across",
+      spikesnap: "cursor", spikecolor: "#c5cbd3", spikethickness: 1, spikedash: "dot",
+      domain: [0, 1]
+    },
+    yaxis: {
+      showgrid: true, gridcolor: "#f0f1f2", linecolor: "#eaecef", side: "right",
+      showspikes: true, spikemode: "across", spikecolor: "#c5cbd3",
+      spikethickness: 1, spikedash: "dot", domain: [0.24, 1]
+    },
+    xaxis2: {
+      matches: "x", showgrid: true, gridcolor: "#f0f1f2",
+      tickformat: tickformat, domain: [0, 1], anchor: "y2"
+    },
+    yaxis2: {
+      domain: [0, 0.20], showticklabels: false, side: "right",
+      showgrid: true, gridcolor: "#f0f1f2", anchor: "x2"
+    },
+    shapes: [],
+    annotations: []
+  };
+}
+
+function candleTrace() {
+  return {
+    type: "candlestick", x: [], open: [], high: [], low: [], close: [],
+    name: "OHLC", whiskerwidth: 0.8,
+    increasing: { line: { color: GREEN }, fillcolor: GREEN },
+    decreasing: { line: { color: RED }, fillcolor: RED },
+    xaxis: "x", yaxis: "y", hoverinfo: "skip"
+  };
+}
+function lineTrace(color, name) {
+  return { type: "scatter", mode: "lines", x: [], y: [], name: name, line: { width: 1.1, color: color }, hoverinfo: "skip", xaxis: "x", yaxis: "y" };
+}
+function volTrace() {
+  return { type: "bar", x: [], y: [], name: "Vol", marker: { color: [], line: { width: 0 } }, hoverinfo: "skip", xaxis: "x2", yaxis: "y2" };
+}
+
+function originalTraces() {
+  return [
+    candleTrace(),
+    lineTrace("#f0b90b", "MA(7)"),
+    lineTrace("#e040fb", "MA(25)"),
+    lineTrace("#7c4dff", "MA(99)"),
+    volTrace()
+  ];
+}
+function tvTraces() {
+  return originalTraces().concat([
+    lineTrace("#2962ff", "EMA20"),
+    lineTrace("#ff6d00", "EMA50"),
+    lineTrace("#7b1fa2", "EMA200")
+  ]);
+}
+function depthTraces() {
+  return [
+    { type: "scatter", mode: "lines", x: [], y: [], fill: "tozerox", name: "Bids",
+      line: { color: GREEN, width: 1.5 }, fillcolor: "rgba(14,203,129,0.18)" },
+    { type: "scatter", mode: "lines", x: [], y: [], fill: "tozerox", name: "Asks",
+      line: { color: RED, width: 1.5 }, fillcolor: "rgba(246,70,93,0.18)" }
+  ];
+}
+
+function userShapes(gd) {
+  return ((gd.layout && gd.layout.shapes) || []).filter(s => s.name === "user");
+}
+function userAnns(gd) {
+  return ((gd.layout && gd.layout.annotations) || []).filter(a => a.name === "user");
+}
+
+function showSignalToast(sig) {
+  const el = document.getElementById("toast");
+  if (!el) return;
+  if (!sig || !sig.active) {
+    el.style.display = "none";
+    el.className = "toast";
+    return;
+  }
+  const buy = sig.side === "BUY";
+  el.className = "toast " + (buy ? "buy" : "sell");
+  el.style.display = "block";
+  el.innerHTML = "<b>" + sig.side + " NOW</b> &nbsp;" + Math.round(sig.confidence) + "%"
+    + "<br>Entry " + Number(sig.entry).toFixed(2)
+    + " · SL " + Number(sig.sl).toFixed(2)
+    + " · TP " + Number(sig.tp1).toFixed(2) + " / " + Number(sig.tp2).toFixed(2) + " / " + Number(sig.tp3).toFixed(2)
+    + "<div class='flow'>" + (sig.flow || "") + "</div>";
+}
+
+function signalShapes(sig) {
+  if (!sig || !sig.active) return [];
+  const buy = sig.side === "BUY";
+  const out = [];
+  out.push({
+    name: "signal", type: "rect", xref: "paper", x0: 0.55, x1: 1,
+    yref: "y", y0: sig.entry, y1: sig.sl,
+    fillcolor: "rgba(246,70,93,0.12)", line: { width: 0 }, layer: "below", editable: false
+  });
+  out.push({
+    name: "signal", type: "rect", xref: "paper", x0: 0.55, x1: 1,
+    yref: "y", y0: sig.entry, y1: sig.tp3,
+    fillcolor: "rgba(14,203,129,0.12)", line: { width: 0 }, layer: "below", editable: false
+  });
+  const levels = [
+    [sig.entry, "#2962ff", "solid", 1.6],
+    [sig.sl, RED, "dash", 1.4],
+    [sig.tp1, GREEN, "dot", 1.2],
+    [sig.tp2, "#03a66d", "dot", 1.2],
+    [sig.tp3, "#0b8a5b", "dot", 1.2]
+  ];
+  levels.forEach(function (lv) {
+    out.push({
+      name: "signal", type: "line", xref: "paper", x0: 0, x1: 1,
+      yref: "y", y0: lv[0], y1: lv[0],
+      line: { color: lv[1], width: lv[3], dash: lv[2] }, layer: "above", editable: false
+    });
+  });
+  if (sig.flow_x && sig.flow_y) {
+    for (let i = 0; i < sig.flow_x.length - 1; i++) {
+      out.push({
+        name: "signal", type: "line",
+        xref: "x", yref: "y",
+        x0: sig.flow_x[i], x1: sig.flow_x[i + 1],
+        y0: sig.flow_y[i], y1: sig.flow_y[i + 1],
+        line: { color: buy ? GREEN : RED, width: 2.2, dash: "dash" },
+        layer: "above", editable: false
+      });
+    }
+  }
+  return out;
+}
+
+function signalAnns(sig) {
+  if (!sig || !sig.active) return [];
+  const buy = sig.side === "BUY";
+  const tags = [
+    [sig.entry, " ENTRY " + Number(sig.entry).toFixed(2) + " ", "#2962ff"],
+    [sig.sl, " SL " + Number(sig.sl).toFixed(2) + " ", RED],
+    [sig.tp1, " TP1 " + Number(sig.tp1).toFixed(2) + " ", GREEN],
+    [sig.tp2, " TP2 " + Number(sig.tp2).toFixed(2) + " ", "#03a66d"],
+    [sig.tp3, " TP3 " + Number(sig.tp3).toFixed(2) + " ", "#0b8a5b"]
+  ];
+  const anns = tags.map(function (t) {
+    return {
+      name: "signal", xref: "paper", x: 1, xanchor: "right", xshift: -6,
+      y: t[0], yanchor: "middle", text: t[1], showarrow: false,
+      font: { color: "#fff", size: 10 }, bgcolor: t[2], borderpad: 2
+    };
+  });
+  anns.push({
+    name: "signal", x: sig.mark_x, y: sig.mark_y,
+    text: buy ? "▲ BUY" : "▼ SELL",
+    showarrow: true, arrowhead: 3, arrowsize: 1.2, arrowwidth: 1.5,
+    arrowcolor: buy ? GREEN : RED,
+    ax: 0, ay: buy ? 36 : -36,
+    font: { color: buy ? GREEN : RED, size: 13, family: "Segoe UI" }
+  });
+  return anns;
+}
+
+function accuracyShapes(acc) {
+  if (!acc || !acc.active) return [];
+  const out = [];
+  (acc.sessions || []).forEach(function (s) {
+    out.push({
+      name: "accuracy", type: "line", xref: "paper", x0: 0, x1: 1,
+      yref: "y", y0: s.y, y1: s.y,
+      line: { color: s.color, width: 1, dash: "dash" }, layer: "below", editable: false
+    });
+  });
+  (acc.clusters || []).slice(0, 3).forEach(function (c) {
+    out.push({
+      name: "accuracy", type: "line", xref: "paper", x0: 0.62, x1: 1,
+      yref: "y", y0: c.y, y1: c.y,
+      line: { color: c.color, width: 1, dash: "dot" }, layer: "below", editable: false
+    });
+  });
+  return out;
+}
+
+function accuracyAnns(acc) {
+  /* Names live in the overlay box so they never sit on Vol / OHLC text. */
+  return [];
+}
+
+function overlayHtml(p) {
+  let html = p.overlay || "";
+  const acc = p.accuracy;
+  if (acc && acc.active) {
+    const bits = [];
+    (acc.sessions || []).forEach(function (s) {
+      bits.push(
+        "<span style='color:" + s.color + "'>" + s.name + " " +
+        Number(s.y).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) +
+        "</span>"
+      );
+    });
+    if (bits.length) html += "<div class='levels'>" + bits.join("") + "</div>";
+    if (acc.notes && acc.notes.length) {
+      html += "<div class='notes'>" + acc.notes.slice(0, 3).join(" · ") + "</div>";
+    }
+  }
+  if (p.forecast && p.forecast.active && p.forecast.headline) {
+    html += "<div class='notes' style='color:" + (p.forecast.color || "#f0b90b") + "'>" + p.forecast.headline + "</div>";
+  }
+  return html;
+}
+
+function forecastShapes(fc) {
+  if (!fc || !fc.active) return [];
+  const col = fc.color || "#f0b90b";
+  return (fc.levels || []).map(function (lv) {
+    return {
+      name: "forecast", type: "line", xref: "paper", x0: 0.48, x1: 1,
+      yref: "y", y0: lv.y, y1: lv.y,
+      line: { color: col, width: 1.3, dash: "dot" }, layer: "below", editable: false
+    };
+  });
+}
+
+function forecastAnns(fc) {
+  if (!fc || !fc.active) return [];
+  const col = fc.color || "#f0b90b";
+  return (fc.levels || []).map(function (lv) {
+    return {
+      name: "forecast", xref: "paper", x: 0.50, xanchor: "left",
+      y: lv.y, yanchor: "bottom",
+      text: lv.label || "",
+      showarrow: false,
+      font: { color: col, size: 10 },
+      bgcolor: "rgba(255,255,255,0.94)",
+      bordercolor: col,
+      borderwidth: 1,
+      borderpad: 3
+    };
+  });
+}
+
+function applyForecastTrace(gd, fc) {
+  const idx = gd.data.findIndex(function (t) { return t.name === "Forecast"; });
+  if (!fc || !fc.active || !fc.path_x || fc.path_x.length < 2) {
+    if (idx >= 0) Plotly.deleteTraces(gd, [idx]);
+    return;
+  }
+  if (idx >= 0) {
+    Plotly.restyle(gd, {
+      x: [fc.path_x],
+      y: [fc.path_y],
+      text: [fc.path_text || []],
+      "line.color": [fc.color],
+      "marker.color": [fc.color]
+    }, [idx]);
+    return;
+  }
+  Plotly.addTraces(gd, {
+    name: "Forecast",
+    type: "scatter",
+    mode: "lines+markers",
+    x: fc.path_x,
+    y: fc.path_y,
+    text: fc.path_text || [],
+    hoverinfo: "text+y",
+    line: { color: fc.color, width: 2.2, dash: "dash" },
+    marker: { size: 8, color: fc.color },
+    xaxis: "x",
+    yaxis: "y"
+  });
+}
+
+function lastPriceDecor(lastX, lastY, color) {
+  return {
+    shapes: [{
+      name: "lastprice", type: "line", xref: "paper", x0: 0, x1: 1,
+      yref: "y", y0: lastY, y1: lastY,
+      line: { color: color, width: 1, dash: "dot" }, editable: false
+    }],
+    annotations: [{
+      name: "lastprice", x: lastX, y: lastY, text: " " + Number(lastY).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) + " ",
+      showarrow: false, xanchor: "left", yanchor: "middle",
+      bgcolor: color, font: { color: "#fff", size: 11 }, xshift: 8
+    }]
+  };
+}
+
+function initPlot(mode, tickformat, uirev) {
+  const traces = mode === "depth" ? depthTraces() : (mode === "tradingview" ? tvTraces() : originalTraces());
+  const layout = baseLayout(tickformat, uirev);
+  if (mode === "depth") {
+    layout.yaxis.domain = [0, 1];
+    delete layout.xaxis2;
+    delete layout.yaxis2;
+    layout.showlegend = true;
+    layout.legend = { orientation: "h", y: 1.08, x: 0, font: { size: 11, color: "#707a8a" } };
+  }
+  return Plotly.react("g", traces, layout, CONFIG).then(bindPlot);
+}
+
+let bound = false;
+function bindPlot() {
+  const gd = document.getElementById("g");
+  if (bound) return;
+  bound = true;
+  gd.on("plotly_relayouting", function () { drawing = true; });
+  gd.on("plotly_relayout", function (ev) {
+    drawing = false;
+    if (appRelayout) {
+      appRelayout = false;
+      return;
+    }
+    if (ev["xaxis.range[0]"] !== undefined || ev["xaxis.range[1]"] !== undefined) {
+      const xr = gd.layout.xaxis.range;
+      const xs = (gd.data[0] && gd.data[0].x) || [];
+      const lastX = xs.length ? xs[xs.length - 1] : null;
+      followRight = !lastX || !xr || xr[1] >= lastX;
+    }
+    const keys = Object.keys(ev || {});
+    if (keys.some(function (k) { return k === "shapes" || k.indexOf("shapes[") === 0; })) {
+      snapLastShape();
+    }
+  });
+  gd.on("plotly_hover", function (ev) {
+    if (!ev || !ev.points || !ev.points.length) return;
+    const pt = ev.points[0];
+    if (pt.data && pt.data.type === "candlestick") {
+      const o = Number(pt.open), h = Number(pt.high), l = Number(pt.low), c = Number(pt.close);
+      const chg = c - o, pct = o ? (chg / o) * 100 : 0, amp = o ? ((h - l) / o) * 100 : 0;
+      const cls = c >= o ? "up" : "dn";
+      document.getElementById("overlay").innerHTML =
+        "<div class='ohlc " + cls + "'>" +
+        "<span>Open: " + fmt(o) + "</span><span>High: " + fmt(h) + "</span>" +
+        "<span>Low: " + fmt(l) + "</span><span>Close: " + fmt(c) + "</span>" +
+        "<span>Change: " + (chg >= 0 ? "+" : "") + chg.toFixed(2) + " (" + (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%)</span>" +
+        "<span>Amplitude: " + amp.toFixed(2) + "%</span></div>";
+    }
+  });
+  gd.on("plotly_unhover", function () {
+    if (lastOverlay) document.getElementById("overlay").innerHTML = lastOverlay;
+  });
+  gd.on("plotly_click", function (ev) {
+    if (!ev || !ev.points || !ev.points.length) return;
+    const pt = ev.points[0];
+    if (currentTool === "arrow") {
+      const anns = ((gd.layout && gd.layout.annotations) || []).slice();
+      anns.push(markUser({
+        x: pt.x, y: pt.y, text: "▲", showarrow: false,
+        font: { color: GREEN, size: 16 }, yshift: 8
+      }));
+      Plotly.relayout(gd, { annotations: anns });
+    } else if (currentTool === "text") {
+      const t = window.prompt("Text label", "");
+      if (!t) return;
+      const anns = ((gd.layout && gd.layout.annotations) || []).slice();
+      anns.push(markUser({
+        x: pt.x, y: pt.y, text: t, showarrow: true, arrowhead: 2,
+        ax: 40, ay: -20, font: { color: "#1e2329", size: 12 },
+        bgcolor: "#fff", bordercolor: YELLOW, borderwidth: 1
+      }));
+      Plotly.relayout(gd, { annotations: anns });
+    }
+  });
+}
+
+function fmt(n) {
+  return Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function markUser(s) {
+  s.name = "user";
+  s.editable = true;
+  return s;
+}
+
+function snapLastShape() {
+  const gd = document.getElementById("g");
+  const shapes = (gd.layout && gd.layout.shapes) || [];
+  if (!shapes.length) return;
+  let changed = false;
+  shapes.forEach(function (s) {
+    if (!s.name) { s.name = "user"; s.editable = true; changed = true; }
+  });
+  const s = shapes[shapes.length - 1];
+  if (!s || s.name === "lastprice") return;
+  if (currentTool === "hline") {
+    s.y1 = s.y0; s.xref = "paper"; s.x0 = 0; s.x1 = 1; s.yref = "y";
+    changed = true;
+  } else if (currentTool === "vline") {
+    s.x1 = s.x0; s.yref = "paper"; s.y0 = 0; s.y1 = 1; s.xref = "x";
+    changed = true;
+  } else if (currentTool === "ray") {
+    const dx = s.x1 - s.x0, dy = s.y1 - s.y0;
+    s.x1 = s.x0 + dx * 30;
+    s.y1 = s.y0 + dy * 30;
+    changed = true;
+  } else if (currentTool === "fib") {
+    const y0 = s.y0, y1 = s.y1;
+    const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+    const cols = ["#707a8a", "#f6465d", "#f0b90b", "#0ecb81", "#f0b90b", "#f6465d", "#707a8a"];
+    shapes.pop();
+    levels.forEach(function (lv, i) {
+      const y = y0 + (y1 - y0) * lv;
+      shapes.push(markUser({
+        type: "line", xref: "paper", x0: 0, x1: 1, yref: "y", y0: y, y1: y,
+        line: { color: cols[i], width: 1, dash: lv === 0.5 ? "solid" : "dot" },
+        label: { text: (lv * 100).toFixed(1) + "%", textposition: "end" }
+      }));
+    });
+    changed = true;
+  }
+  if (changed) {
+    const patch = { shapes: shapes };
+    if (currentTool === "hline" || currentTool === "vline" || currentTool === "ray" || currentTool === "fib") {
+      patch.dragmode = "zoom";
+      currentTool = "cursor";
+      document.querySelectorAll(".rail button").forEach(function (b) {
+        b.classList.toggle("on", b.getAttribute("data-tool") === "cursor");
+      });
+    }
+    appRelayout = true;
+    Plotly.relayout(gd, patch);
+  }
+}
+
+window.setTool = function (name) {
+  currentTool = name;
+  document.querySelectorAll(".rail button").forEach(function (b) {
+    b.classList.toggle("on", b.getAttribute("data-tool") === name);
+  });
+  const gd = document.getElementById("g");
+  if (name === "clear") {
+    const keepS = ((gd.layout && gd.layout.shapes) || []).filter(s => s.name === "lastprice" || s.name === "signal" || s.name === "accuracy");
+    const keepA = ((gd.layout && gd.layout.annotations) || []).filter(a => a.name === "lastprice" || a.name === "signal" || a.name === "accuracy");
+    Plotly.relayout(gd, { shapes: keepS, annotations: keepA, dragmode: "zoom" });
+    currentTool = "cursor";
+    document.querySelectorAll(".rail button").forEach(function (b) {
+      b.classList.toggle("on", b.getAttribute("data-tool") === "cursor");
+    });
+    return;
+  }
+  if (name === "erase") {
+    const users = userShapes(gd);
+    users.pop();
+    const keep = ((gd.layout && gd.layout.shapes) || []).filter(s => s.name === "lastprice" || s.name === "signal" || s.name === "accuracy").concat(users);
+    const anns = userAnns(gd);
+    anns.pop();
+    const keepA = ((gd.layout && gd.layout.annotations) || []).filter(a => a.name === "lastprice" || a.name === "signal" || a.name === "accuracy").concat(anns);
+    Plotly.relayout(gd, { shapes: keep, annotations: keepA });
+    return;
+  }
+  const map = {
+    cursor: { dragmode: "zoom" },
+    pan: { dragmode: "pan" },
+    trend: { dragmode: "drawline", "newshape.line.color": YELLOW },
+    hline: { dragmode: "drawline", "newshape.line.color": YELLOW },
+    vline: { dragmode: "drawline", "newshape.line.color": YELLOW },
+    ray: { dragmode: "drawline", "newshape.line.color": YELLOW },
+    fib: { dragmode: "drawline", "newshape.line.color": "#0ecb81" },
+    rect: { dragmode: "drawrect" },
+    circle: { dragmode: "drawcircle" },
+    triangle: { dragmode: "drawclosedpath" },
+    brush: { dragmode: "drawopenpath" },
+    erase: { dragmode: "drawline" }
+  };
+  if (map[name]) Plotly.relayout(gd, map[name]);
+};
+
+document.getElementById("rail").addEventListener("click", function (ev) {
+  const btn = ev.target.closest("button");
+  if (!btn) return;
+  const tool = btn.getAttribute("data-tool");
+  if (tool === "arrow" || tool === "text") {
+    currentTool = tool;
+    document.querySelectorAll(".rail button").forEach(function (b) {
+      b.classList.toggle("on", b === btn);
+    });
+    Plotly.relayout(document.getElementById("g"), { dragmode: "zoom" });
+    return;
+  }
+  window.setTool(tool);
+});
+
+window.updateChart = function (p) {
+  if (!window.Plotly) return;
+  const gd = document.getElementById("g");
+  if (drawing) return;
+  lastOverlay = overlayHtml(p);
+  document.getElementById("overlay").innerHTML = lastOverlay;
+
+  const mode = p.mode || "original";
+  const reset = !!p.reset || mode !== currentMode;
+
+  if (reset) {
+    currentMode = mode;
+    followRight = true;
+    initPlot(mode, p.tickformat, p.uirev).then(function () {
+      window.updateChart(Object.assign({}, p, { reset: false, _fill: true }));
+    });
+    return;
+  }
+
+  if (mode === "depth") {
+    showSignalToast(null);
+    Plotly.restyle(gd, { x: [p.bids.x, p.asks.x], y: [p.bids.y, p.asks.y] }, [0, 1]);
+    return;
+  }
+
+  if (!gd.data || !gd.data.length) {
+    initPlot(mode, p.tickformat, p.uirev).then(function () { window.updateChart(p); });
+    return;
+  }
+
+  Plotly.restyle(gd, {
+    x: [p.ohlc.x], open: [p.ohlc.open], high: [p.ohlc.high], low: [p.ohlc.low], close: [p.ohlc.close]
+  }, [0]);
+  Plotly.restyle(gd, {
+    x: [p.ma7.x, p.ma25.x, p.ma99.x], y: [p.ma7.y, p.ma25.y, p.ma99.y]
+  }, [1, 2, 3]);
+  Plotly.restyle(gd, {
+    x: [p.vol.x], y: [p.vol.y], "marker.color": [p.vol.colors]
+  }, [4]);
+  if (mode === "tradingview" && p.ema20 && gd.data.length >= 8) {
+    Plotly.restyle(gd, {
+      x: [p.ema20.x, p.ema50.x, p.ema200.x],
+      y: [p.ema20.y, p.ema50.y, p.ema200.y]
+    }, [5, 6, 7]);
+  }
+
+  const deco = lastPriceDecor(p.ohlc.x[p.ohlc.x.length - 1], p.last, p.tag_color);
+  showSignalToast(p.signal);
+  const layoutPatch = {
+    shapes: deco.shapes.concat(signalShapes(p.signal)).concat(accuracyShapes(p.accuracy)).concat(forecastShapes(p.forecast)).concat(userShapes(gd)),
+    annotations: deco.annotations.concat(signalAnns(p.signal)).concat(accuracyAnns(p.accuracy)).concat(forecastAnns(p.forecast)).concat(userAnns(gd)),
+    uirevision: p.uirev
+  };
+  if (!followRight && gd.layout.xaxis && gd.layout.xaxis.range) {
+    layoutPatch["xaxis.range"] = gd.layout.xaxis.range.slice();
+    if (gd.layout.yaxis && gd.layout.yaxis.range) {
+      layoutPatch["yaxis.range"] = gd.layout.yaxis.range.slice();
+    }
+  }
+  appRelayout = true;
+  Plotly.relayout(gd, layoutPatch);
+  applyForecastTrace(gd, p.forecast);
+};
+
+window.resetView = function () {
+  followRight = true;
+  const gd = document.getElementById("g");
+  if (!gd || !gd.layout) return;
+  appRelayout = true;
+  Plotly.relayout(gd, {
+    "xaxis.autorange": true,
+    "yaxis.autorange": true,
+    "xaxis2.autorange": true,
+    "yaxis2.autorange": true
+  });
+};
+
+document.querySelector('.rail button[data-tool="cursor"]').classList.add("on");
+initPlot("original", "%H:%M", "original-M15");
+</script>
+</body>
+</html>

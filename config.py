@@ -22,11 +22,12 @@ class DataSource(str, Enum):
 
 
 class TradingMode(str, Enum):
-    """Strategy profile — swing (HTF), intraday (session), scalp (LTF)."""
+    """Strategy profile — swing (HTF), intraday (session), scalp (LTF), predict (forecast)."""
 
     SWING = "swing"
     INTRADAY = "intraday"
     SCALP = "scalp"
+    PREDICT = "predict"
 
 
 class TimeFrame(str, Enum):
@@ -258,11 +259,12 @@ def load_env_overrides() -> None:
 
 def apply_trading_mode(mode: TradingMode | str) -> None:
     """
-    Switch Swing / Intraday / Scalp profile.
+    Switch Swing / Intraday / Scalp / Predict profile.
 
     Swing: monthly→H4 bias, M15 entry, full confluence, 1:2 R:R.
     Intraday: H4/H1 bias, M15 entry + M5 confirm, session-aware, 1:1.5 R:R.
     Scalp: H1/M15 bias, M5 entry + M1 confirm, kill-zone, tighter stops.
+    Predict: D1/H4/H1 bias, H1 chart — forecast only, no trade alerts.
     """
     mode = TradingMode(mode)
     CONFIG.trading_mode = mode
@@ -325,7 +327,7 @@ def apply_trading_mode(mode: TradingMode | str) -> None:
         CONFIG.signal.intraday_max_spread_atr_frac = 0.30
         CONFIG.news.block_minutes_before = 20
         CONFIG.news.block_minutes_after = 20
-    else:  # SCALP
+    elif mode == TradingMode.SCALP:
         CONFIG.analysis_timeframes = (
             TimeFrame.H1,
             TimeFrame.M30,
@@ -355,4 +357,33 @@ def apply_trading_mode(mode: TradingMode | str) -> None:
         CONFIG.signal.intraday_require_session = False
         CONFIG.news.block_minutes_before = 15
         CONFIG.news.block_minutes_after = 15
+    elif mode == TradingMode.PREDICT:
+        CONFIG.analysis_timeframes = (
+            TimeFrame.D1,
+            TimeFrame.H4,
+            TimeFrame.H1,
+            TimeFrame.M15,
+            TimeFrame.M5,
+        )
+        CONFIG.htf_timeframes = (TimeFrame.D1, TimeFrame.H4, TimeFrame.H1)
+        CONFIG.entry_timeframe = TimeFrame.H1
+        CONFIG.confirm_timeframe = TimeFrame.M15
+        CONFIG.ui.chart_timeframe = TimeFrame.H1
+        CONFIG.ui.refresh_ms = 1000
+        CONFIG.ui.chart_candles = 180
+        CONFIG.risk.min_risk_reward = 2.0
+        CONFIG.risk.atr_sl_multiplier = 1.5
+        CONFIG.risk.tp1_rr = 2.0
+        CONFIG.risk.tp2_rr = 3.0
+        CONFIG.risk.tp3_rr = 5.0
+        CONFIG.signal.min_confidence = 60.0
+        CONFIG.signal.swing_lookback = 5
+        CONFIG.signal.liquidity_sweep_lookback = 20
+        CONFIG.signal.rsi_oversold = 35.0
+        CONFIG.signal.rsi_overbought = 65.0
+        CONFIG.signal.scalp_require_killzone = False
+        CONFIG.signal.scalp_require_m1_confirm = False
+        CONFIG.signal.intraday_require_session = False
+        CONFIG.news.block_minutes_before = 30
+        CONFIG.news.block_minutes_after = 30
 

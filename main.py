@@ -44,7 +44,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument(
         "--mode",
-        choices=["swing", "intraday", "scalp"],
+        choices=["swing", "intraday", "scalp", "predict"],
         default=None,
         help="Trading profile: swing (default), intraday, or scalp",
     )
