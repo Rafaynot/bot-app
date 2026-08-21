@@ -90,3 +90,4 @@ python main.py --source demo --telegram-token BOT_TOKEN --telegram-chat CHAT_ID 
 ## Disclaimer
 
 This software is for educational and analytical purposes only. It does not execute trades and does not constitute financial advice. Trading precious metals involves substantial risk of loss.
+"# BOTPYTHON" 
