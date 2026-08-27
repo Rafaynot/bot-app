@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="theme-color" content="#181a20"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <title>XAUUSD Signal Desk Pro — Android & Web</title>
+  <link rel="manifest" href="/manifest.json"/>
+  <link rel="icon" type="image/svg+xml" href="/icon.svg"/>
+  <link rel="stylesheet" href="/style.css"/>
+  <script src="/plotly.min.js"></script>
+  <script>if (!window.Plotly) document.write('<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"><\/script>');</script>
+</head>
+<body>
+  <!-- TOP NAVBAR -->
+  <header class="app-navbar">
+    <div class="nav-left">
+      <button class="burger-btn" id="burgerBtn" aria-label="Open Navigation Menu">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+      <div class="brand-group">
+        <div class="symbol-select-wrap">
+          <span class="symbol-name" id="pair">XAU/USD</span>
+          <span class="live-dot" id="liveDot" title="Live MT5/Feed Stream"></span>
+        </div>
+        <span class="meta-sub" id="meta">Connecting…</span>
+      </div>
+    </div>
+
+    <div class="nav-right">
+      <div class="price-pill" id="pricePill">
+        <div class="price-val" id="last">—</div>
+        <div class="price-chg" id="change">—</div>
+      </div>
+
+      <div class="nav-actions">
+        <button class="action-btn" id="themeBtn" title="Toggle Light / Dark Mode" aria-label="Theme Toggle">
+          <svg class="icon icon-theme" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path id="themeIconPath" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+          </svg>
+        </button>
+        <button class="action-btn" id="soundBtn" title="Toggle Sound Alerts" aria-label="Sound Alerts">
+          <svg class="icon icon-sound" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+          </svg>
+        </button>
+        <button class="action-btn" id="refreshBtn" title="Force Refresh" aria-label="Refresh Data">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <polyline points="1 20 1 14 7 14"></polyline>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- SLIDE-OVER SIDEBAR DRAWER (BURGER MENU) -->
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+  <aside class="drawer" id="drawer">
+    <div class="drawer-header">
+      <div class="drawer-brand">
+        <img src="/icon.svg" alt="Logo" class="drawer-logo"/>
+        <div>
+          <h3>XAUUSD Pro Desk</h3>
+          <span class="drawer-version">v2.4.0 · Smart Money Engine</span>
+        </div>
+      </div>
+      <button class="close-btn" id="drawerClose" aria-label="Close Drawer">
+        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
+    <div class="drawer-body">
+      <!-- Trading Profile Mode -->
+      <div class="drawer-section">
+        <label class="section-title">Trading Profile</label>
+        <div class="mode-chips" id="drawerModes">
+          <button class="mode-chip active" data-mode="swing">
+            <span class="mode-name">Swing</span>
+            <span class="mode-desc">H4/D1 Bias · M15 Entry</span>
+          </button>
+          <button class="mode-chip" data-mode="intraday">
+            <span class="mode-name">Intraday</span>
+            <span class="mode-desc">H1 Bias · M15/M5 Entry</span>
+          </button>
+          <button class="mode-chip" data-mode="scalp">
+            <span class="mode-name">Scalp</span>
+            <span class="mode-desc">M15/M5 · M1 Confirm</span>
+          </button>
+          <button class="mode-chip" data-mode="predict">
+            <span class="mode-name">Predict</span>
+            <span class="mode-desc">ML AI Path Horizon</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Live Connection Info -->
+      <div class="drawer-section">
+        <label class="section-title">Data Feed & Server</label>
+        <div class="info-card">
+          <div class="info-row"><span>Source</span><b id="drawerSource">MT5 Live</b></div>
+          <div class="info-row"><span>Server Clock</span><b id="drawerClock">—</b></div>
+          <div class="info-row"><span>Status</span><b id="drawerStatus">Active</b></div>
+          <div class="info-row"><span>Spread</span><b id="drawerSpread">—</b></div>
+        </div>
+      </div>
+
+      <!-- Strategy Parameters -->
+      <div class="drawer-section">
+        <label class="section-title">Signal Configuration</label>
+        <div class="setting-item">
+          <div class="setting-label">
+            <span>Min Confidence Threshold</span>
+            <b id="confThresholdVal">85%</b>
+          </div>
+          <input type="range" id="confSlider" min="50" max="95" value="85" step="5" class="slider-input"/>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-label">
+            <span>Max Risk Per Trade</span>
+            <b id="riskVal">1.0%</b>
+          </div>
+          <select id="riskSelect" class="form-select">
+            <option value="0.5">0.5% (Conservative)</option>
+            <option value="1.0" selected>1.0% (Standard)</option>
+            <option value="1.5">1.5% (Aggressive)</option>
+            <option value="2.0">2.0% (High)</option>
+          </select>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-label">
+            <span>Theme Mode</span>
+            <b id="themeLabel">Dark Theme</b>
+          </div>
+          <div class="toggle-row">
+            <span>Light / Dark Theme</span>
+            <label class="switch">
+              <input type="checkbox" id="themeToggle"/>
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-label">
+            <span>Sound & Notifications</span>
+          </div>
+          <div class="toggle-row">
+            <span>Audio Chime on Actionable Signal</span>
+            <label class="switch">
+              <input type="checkbox" id="soundToggle" checked/>
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Tab Navigation -->
+      <div class="drawer-section">
+        <label class="section-title">Navigation Tabs</label>
+        <div class="drawer-nav-list">
+          <button class="drawer-nav-item" data-tab="chart">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+            <span>Live Interactive Chart</span>
+          </button>
+          <button class="drawer-nav-item" data-tab="signals">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            <span>Signal Engine & Trade Plan</span>
+          </button>
+          <button class="drawer-nav-item" data-tab="analysis">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"/><path d="M12 6v6l4 2"/></svg>
+            <span>SMC / ICT Confluence Matrix</span>
+          </button>
+          <button class="drawer-nav-item" data-tab="book">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            <span>Order Book & Depth Ladder</span>
+          </button>
+          <button class="drawer-nav-item" data-tab="history">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 14"/></svg>
+            <span>Performance & Win Rate</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Machine Learning Summary -->
+      <div class="drawer-section">
+        <label class="section-title">AI Adaptive Learner</label>
+        <div class="learner-card" id="drawerLearner">
+          Auto-optimizing weights based on trade outcome history.
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- SUB-NAV: TIMEFRAME & CHART STYLE RIBBON -->
+  <div class="sub-ribbon">
+    <div class="tf-scroll-row" id="tfRow">
+      <button class="tf-btn" data-tf="M1">1m</button>
+      <button class="tf-btn" data-tf="M5">5m</button>
+      <button class="tf-btn on" data-tf="M15">15m</button>
+      <button class="tf-btn" data-tf="H1">1H</button>
+      <button class="tf-btn" data-tf="H4">4H</button>
+      <button class="tf-btn" data-tf="D1">1D</button>
+      <button class="tf-btn" data-tf="W1">1W</button>
+    </div>
+
+    <div class="chart-view-selector" id="chartViewRow">
+      <button class="view-chip on" data-view="original">Candles</button>
+      <button class="view-chip" data-view="tradingview">TradingView</button>
+      <button class="view-chip" data-view="depth">Depth</button>
+      <button class="view-chip" data-view="predict">AI Path</button>
+    </div>
+  </div>
+
+  <!-- FLOATING ACTIONABLE SIGNAL BANNER (VISIBLE ACROSS TABS WHEN ACTIVE) -->
+  <div id="banner" class="action-banner hidden">
+    <div class="banner-inner">
+      <div class="banner-left">
+        <span class="banner-badge" id="bannerBadge">BUY</span>
+        <div class="banner-details" id="bannerText">Waiting for high confidence signal…</div>
+      </div>
+      <button class="banner-copy-btn" id="bannerCopyBtn" title="Copy Signal to Clipboard">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+        </svg>
+        <span>Copy</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- MAIN VIEWPORT TABS CONTAINER -->
+  <main class="main-content">
+    
+    <!-- TAB 1: CHART -->
+    <section class="tab-panel active" id="tab-chart">
+      <!-- Quick Market Stats Bar -->
+      <div class="stats-grid">
+        <div class="stat-box">
+          <span class="stat-label">24h High</span>
+          <span class="stat-num" id="high">—</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">24h Low</span>
+          <span class="stat-num" id="low">—</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">Spread</span>
+          <span class="stat-num" id="spread">—</span>
+        </div>
+        <div class="stat-box">
+          <span class="stat-label">Volume (24h)</span>
+          <span class="stat-num" id="vol">—</span>
+        </div>
+      </div>
+
+      <!-- Main Plotly Chart Container -->
+      <div class="chart-wrapper">
+        <div class="chart-floating-overlay" id="chartOverlay">
+          <div class="chart-ohlc-line" id="chartOhlcText">O: — H: — L: — C: — Chg: —</div>
+          <div class="chart-ma-line" id="chartMaText">MA7: — MA25: — MA99: —</div>
+        </div>
+        <!-- Quick Touch Zoom & Reset Floating Buttons -->
+        <div class="chart-touch-controls">
+          <button class="chart-touch-btn" id="chartZoomIn" title="Zoom In" aria-label="Zoom In">+</button>
+          <button class="chart-touch-btn" id="chartZoomOut" title="Zoom Out" aria-label="Zoom Out">−</button>
+          <button class="chart-touch-btn" id="chartZoomReset" title="Reset View" aria-label="Reset View">⟲</button>
+        </div>
+        <div id="chart" class="chart-canvas"></div>
+        <div class="chart-loading" id="chartLoading">
+          <div class="spinner"></div>
+          <span>Rendering Live Market…</span>
+        </div>
+      </div>
+
+      <!-- Compact Key Confluences on Chart Tab -->
+      <div class="chart-confluence-strip">
+        <div class="conf-chip"><span class="chip-k">Trend</span><b class="chip-v" id="chartTrend">—</b></div>
+        <div class="conf-chip"><span class="chip-k">Structure</span><b class="chip-v" id="chartStructure">—</b></div>
+        <div class="conf-chip"><span class="chip-k">Session</span><b class="chip-v" id="chartSession">—</b></div>
+        <div class="conf-chip"><span class="chip-k">News</span><b class="chip-v" id="chartNews">—</b></div>
+      </div>
+    </section>
+
+    <!-- TAB 2: SIGNALS & TRADE PLAN -->
+    <section class="tab-panel" id="tab-signals">
+      <!-- Hero Signal Card -->
+      <div class="card signal-hero-card">
+        <div class="sig-header">
+          <div class="sig-title-wrap">
+            <span class="sig-direction-tag" id="sigLabel">NO TRADE</span>
+            <span class="sig-mode-tag" id="sigModeTag">SWING</span>
+          </div>
+          <div class="sig-conf-meta">
+            <span class="conf-percent" id="confText">Confidence 0%</span>
+            <span class="conf-req" id="confReqText">Need ≥ 85%</span>
+          </div>
+        </div>
+
+        <!-- Confidence Gauge Bar -->
+        <div class="conf-progress-track">
+          <div class="conf-progress-fill" id="confBar" style="width: 0%;"></div>
+          <div class="conf-threshold-pin" id="confPin" title="Required Threshold"></div>
+        </div>
+
+        <!-- Trade Setup Grid -->
+        <div class="trade-plan-grid">
+          <div class="plan-card">
+            <span class="plan-label">Entry Price</span>
+            <span class="plan-val font-mono" id="entry">—</span>
+          </div>
+          <div class="plan-card danger">
+            <span class="plan-label">Stop Loss</span>
+            <span class="plan-val font-mono dn" id="sl">—</span>
+          </div>
+          <div class="plan-card success">
+            <span class="plan-label">Take Profit 1</span>
+            <span class="plan-val font-mono up" id="tp1">—</span>
+          </div>
+          <div class="plan-card success">
+            <span class="plan-label">Take Profit 2</span>
+            <span class="plan-val font-mono up" id="tp2">—</span>
+          </div>
+          <div class="plan-card success">
+            <span class="plan-label">Take Profit 3</span>
+            <span class="plan-val font-mono up" id="tp3">—</span>
+          </div>
+          <div class="plan-card accent">
+            <span class="plan-label">Risk : Reward</span>
+            <span class="plan-val font-mono" id="rr">—</span>
+          </div>
+          <div class="plan-card">
+            <span class="plan-label">Position Lots (1%)</span>
+            <span class="plan-val font-mono" id="lots">—</span>
+          </div>
+          <div class="plan-card">
+            <span class="plan-label">ATR Volatility</span>
+            <span class="plan-val font-mono" id="atrVal">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Confluence Checklist -->
+      <div class="card">
+        <h4 class="card-title">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+          Confluence Verification
+        </h4>
+        <div class="confluence-grid" id="confluenceGrid">
+          <div class="conf-item" id="cfTrend"><span>Trend EMA200</span><b>—</b></div>
+          <div class="conf-item" id="cfStruct"><span>Structure BOS</span><b>—</b></div>
+          <div class="conf-item" id="cfOB"><span>Order Block</span><b>—</b></div>
+          <div class="conf-item" id="cfFVG"><span>Fair Value Gap</span><b>—</b></div>
+          <div class="conf-item" id="cfLiq"><span>Liquidity Sweep</span><b>—</b></div>
+          <div class="conf-item" id="cfKZ"><span>Kill Zone</span><b>—</b></div>
+          <div class="conf-item" id="cfCandle"><span>Price Action</span><b>—</b></div>
+          <div class="conf-item" id="cfNews"><span>Forex News Filter</span><b>—</b></div>
+        </div>
+      </div>
+
+      <!-- Engine Output & Reasons Log -->
+      <div class="card">
+        <h4 class="card-title">Analysis Reasons & Checklist Output</h4>
+        <pre class="reasons-log" id="reasons">Waiting for market analysis cycle…</pre>
+      </div>
+    </section>
+
+    <!-- TAB 3: SMC & ICT CONFLUENCE -->
+    <section class="tab-panel" id="tab-analysis">
+      <!-- Multi Timeframe Matrix -->
+      <div class="card">
+        <h4 class="card-title">Top-Down Multi-Timeframe Bias</h4>
+        <div class="table-responsive">
+          <table class="data-table" id="mtfTable">
+            <thead>
+              <tr>
+                <th>TF</th>
+                <th>Trend</th>
+                <th>Structure</th>
+                <th>RSI 14</th>
+                <th>MACD</th>
+                <th>SMC Zone</th>
+              </tr>
+            </thead>
+            <tbody id="mtfBody">
+              <tr><td colspan="6" class="muted text-center">Loading Multi-Timeframe Matrix…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ICT Killzones & Session Info -->
+      <div class="card">
+        <h4 class="card-title">ICT Session & Kill Zone Radar</h4>
+        <div class="grid-2">
+          <div class="info-badge-box">
+            <span class="badge-title">Active Session</span>
+            <span class="badge-big" id="ictSession">—</span>
+          </div>
+          <div class="info-badge-box">
+            <span class="badge-title">Kill Zone Window</span>
+            <span class="badge-big" id="ictKZ">—</span>
+          </div>
+          <div class="info-badge-box">
+            <span class="badge-title">Asian Range High</span>
+            <span class="badge-val font-mono" id="ictAsiaH">—</span>
+          </div>
+          <div class="info-badge-box">
+            <span class="badge-title">Asian Range Low</span>
+            <span class="badge-val font-mono" id="ictAsiaL">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Smart Money Concepts Blocks -->
+      <div class="card">
+        <h4 class="card-title">SMC Liquidity & Institutional Zones</h4>
+        <div class="grid-2">
+          <div class="info-card">
+            <span class="info-label">Nearest Bullish OB</span>
+            <span class="info-val font-mono up" id="smcBullOB">—</span>
+          </div>
+          <div class="info-card">
+            <span class="info-label">Nearest Bearish OB</span>
+            <span class="info-val font-mono dn" id="smcBearOB">—</span>
+          </div>
+          <div class="info-card">
+            <span class="info-label">Active Fair Value Gap</span>
+            <span class="info-val font-mono" id="smcFVG">—</span>
+          </div>
+          <div class="info-card">
+            <span class="info-label">Liquidity Pool Sweeps</span>
+            <span class="info-val font-mono" id="smcPools">—</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 4: ORDER BOOK & DEPTH -->
+    <section class="tab-panel" id="tab-book">
+      <div class="card">
+        <div class="book-head">
+          <h4 class="card-title">Live Order Book & Liquidity Ladder</h4>
+          <span class="book-spread-tag">Spread: <b id="bookSpread">—</b></span>
+        </div>
+
+        <!-- Depth Imbalance Meter -->
+        <div class="imbalance-wrap">
+          <div class="imbalance-labels">
+            <span class="up" id="bidDominance">Bids 50%</span>
+            <span class="dn" id="askDominance">Asks 50%</span>
+          </div>
+          <div class="imbalance-bar">
+            <div class="imbalance-fill-bids" id="imbalanceBids" style="width: 50%;"></div>
+            <div class="imbalance-fill-asks" id="imbalanceAsks" style="width: 50%;"></div>
+          </div>
+        </div>
+
+        <!-- Order Ladder -->
+        <div class="book-ladder-table" id="book">
+          <div class="book-loading muted text-center">Connecting to Order Book Stream…</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 5: HISTORY & PERFORMANCE -->
+    <section class="tab-panel" id="tab-history">
+      <!-- Performance Winrate Cards -->
+      <div class="card">
+        <h4 class="card-title">Performance & Verified Win Rates</h4>
+        <div class="stats-grid" id="perfGrid">
+          <div class="stat-box">
+            <span class="stat-label">Swing Mode</span>
+            <span class="stat-num up" id="perfSwing">—</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Intraday Mode</span>
+            <span class="stat-num up" id="perfIntraday">—</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">Scalp Mode</span>
+            <span class="stat-num up" id="perfScalp">—</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">AI Predictions</span>
+            <span class="stat-num" id="perfPredict">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Signals Database Table -->
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <h4 class="card-title" style="margin-bottom: 0;">Recent Signals Track Record</h4>
+          <button class="btn-clear-stats" id="clearStatsBtn" style="background: var(--red-bg); color: var(--red); border: 1px solid var(--red); border-radius: 5px; padding: 4px 10px; font-size: 11px; font-weight: 700; cursor: pointer; box-shadow: var(--shadow-subtle);">Clear Stats</button>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table" id="historyTable">
+            <thead>
+              <tr>
+                <th>Time (UTC)</th>
+                <th>Mode</th>
+                <th>Side</th>
+                <th>Entry</th>
+                <th>SL</th>
+                <th>TP1</th>
+                <th>Conf</th>
+                <th>Outcome</th>
+              </tr>
+            </thead>
+            <tbody id="historyBody">
+              <tr><td colspan="8" class="muted text-center">Loading signal log…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- BOTTOM NAVIGATION BAR (ANDROID MOBILE FOOTER TAB BAR) -->
+  <footer class="app-bottom-nav">
+    <button class="nav-tab active" data-tab="chart" aria-label="Chart">
+      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>
+      </svg>
+      <span class="tab-label">Chart</span>
+    </button>
+
+    <button class="nav-tab" data-tab="signals" aria-label="Signals">
+      <div class="tab-icon-wrap">
+        <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+        </svg>
+        <span class="tab-badge pulse hidden" id="sigTabBadge">!</span>
+      </div>
+      <span class="tab-label">Signals</span>
+    </button>
+
+    <button class="nav-tab" data-tab="analysis" aria-label="SMC & ICT">
+      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>
+      </svg>
+      <span class="tab-label">SMC/ICT</span>
+    </button>
+
+    <button class="nav-tab" data-tab="book" aria-label="Order Book">
+      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+      </svg>
+      <span class="tab-label">Depth</span>
+    </button>
+
+    <button class="nav-tab" data-tab="history" aria-label="History">
+      <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="20" x2="18" y2="10"></line>
+        <line x1="12" y1="20" x2="12" y2="4"></line>
+        <line x1="6" y1="20" x2="6" y2="14"></line>
+      </svg>
+      <span class="tab-label">History</span>
+    </button>
+  </footer>
+
+  <!-- TOAST NOTIFICATION CONTAINER -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

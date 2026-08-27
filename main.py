@@ -58,6 +58,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--mt5-password", default=None)
     p.add_argument("--mt5-server", default=None)
     p.add_argument("--mt5-path", default=None, help="Path to terminal64.exe")
+    p.add_argument("--web", action="store_true", help="Launch responsive Android/web server instead of PySide GUI")
+    p.add_argument("--web-port", type=int, default=8000, help="Web server port (default 8000)")
     p.add_argument("--headless", action="store_true", help="Run one analysis cycle without GUI")
     p.add_argument("--log-level", default="INFO")
     return p.parse_args(argv)
@@ -152,6 +154,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.headless:
         return run_headless()
+
+    if args.web:
+        from web_server import start_server
+
+        return start_server(port=args.web_port)
 
     from dashboard import run_dashboard
 

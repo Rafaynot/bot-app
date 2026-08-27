@@ -59,8 +59,11 @@ python main.py --source binance --symbol BTCUSDT
 # Headless one-shot (CLI)
 python main.py --source demo --headless
 
-# Telegram alerts
-python main.py --source demo --telegram-token BOT_TOKEN --telegram-chat CHAT_ID --balance 10000
+# Responsive Web Server for Android / Mobile & Desktop:
+python main.py --web
+# or:
+python web_server.py --source demo --port 8000
+# Then open on your Android phone browser: http://<YOUR_PC_LAN_IP>:8000
 ```
 
 ## Project layout
@@ -87,7 +90,34 @@ python main.py --source demo --telegram-token BOT_TOKEN --telegram-chat CHAT_ID 
 
 **SELL** is the mirror image (price below EMA200 unless reversal CHOCH is confirmed).
 
+## Android APK Build (Buildozer)
+
+You can compile a standalone `.apk` installer for Android phones using Buildozer:
+
+### Option 1: Free 1-Click Cloud Build (Google Colab)
+1. Open [Google Colab](https://colab.research.google.com/).
+2. Upload this project folder as a ZIP file (or git clone your repository).
+3. Run the commands in [`build_apk_colab.py`](file:///e:/BOTPYTHON/build_apk_colab.py):
+   ```bash
+   !pip install Cython==0.29.36 buildozer virtualenv
+   !buildozer -v android debug
+   ```
+4. Download the generated `.apk` from `bin/` directory directly onto your Android phone!
+
+### Option 2: Automated GitHub Actions
+1. Push this repository to GitHub.
+2. Go to the **Actions** tab and trigger the **Build Android APK (Buildozer)** workflow.
+3. Download the generated `xauusd-signal-desk-apk` artifact.
+
+### Option 3: Local Build (Linux / WSL)
+```bash
+pip install --upgrade buildozer Cython
+buildozer -v android debug
+```
+
+---
+
 ## Disclaimer
 
 This software is for educational and analytical purposes only. It does not execute trades and does not constitute financial advice. Trading precious metals involves substantial risk of loss.
-"# BOTPYTHON" 
+

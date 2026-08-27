@@ -238,17 +238,29 @@ QMenu::item:selected {{
     background: #f5f5f5;
     color: {BN_TEXT};
 }}
-QPushButton#refreshBtn {{
-    color: {BN_MUTED};
+QPushButton#refreshBtn, QPushButton#clearBtn, QPushButton#resetBtn {{
+    background: #ffffff;
+    color: #474d57;
+    border: 1px solid #d0d5dd;
+    border-radius: 4px;
+    padding: 5px 12px;
     font-size: 12px;
-    padding: 4px 8px;
+    font-weight: 600;
 }}
-QPushButton#refreshBtn:hover {{
-    color: {BN_TEXT};
+QPushButton#refreshBtn:hover, QPushButton#resetBtn:hover {{
+    background: #f0f2f5;
+    color: #0b0e11;
+    border-color: #98a2b3;
 }}
 QPushButton#clearBtn {{
-    color: {BN_MUTED};
-    font-size: 12px;
+    color: #c53030;
+    border-color: #feb2b2;
+    background: #fff5f5;
+}}
+QPushButton#clearBtn:hover {{
+    color: #ffffff;
+    background: #e53e3e;
+    border-color: #e53e3e;
 }}
 QComboBox {{
     background: {BN_BG};
@@ -462,41 +474,60 @@ def _ohlc_overlay(df: pd.DataFrame, ma7: pd.Series, ma25: pd.Series, ma99: pd.Se
 
 def _market_stats(analysis: TopDownAnalysis) -> dict[str, float]:
     snap: MarketSnapshot | None = getattr(analysis, "_snapshot", None)
-    df = None
     if snap:
-        for tf in (TimeFrame.M1, TimeFrame.M5, TimeFrame.M15, TimeFrame.H1, TimeFrame.D1):
+        # 1. Direct 24h Daily candle if available
+        if TimeFrame.D1 in snap.frames and snap.frames[TimeFrame.D1] is not None and not snap.frames[TimeFrame.D1].empty:
+            d_candle = snap.frames[TimeFrame.D1].iloc[-1]
+            d_open = float(d_candle["open"])
+            d_high = max(float(d_candle["high"]), float(analysis.price))
+            d_low = min(float(d_candle["low"]), float(analysis.price))
+            d_last = float(analysis.price)
+            d_vol = float(d_candle["volume"])
+            d_chg = d_last - d_open
+            d_pct = (d_chg / d_open * 100.0) if d_open else 0.0
+            return {
+                "last": d_last,
+                "change": d_chg,
+                "pct": d_pct,
+                "high": d_high,
+                "low": d_low,
+                "vol_base": d_vol,
+                "vol_quote": d_vol * d_last,
+            }
+
+        # 2. Rolling 24-hour window from H1 / H4 / M15
+        for tf in (TimeFrame.H1, TimeFrame.H4, TimeFrame.M15, TimeFrame.M5, TimeFrame.M1):
             if tf in snap.frames and snap.frames[tf] is not None and not snap.frames[tf].empty:
                 df = snap.frames[tf]
-                break
-    if df is None or df.empty:
-        return {
-            "last": analysis.price,
-            "change": 0.0,
-            "pct": 0.0,
-            "high": analysis.price,
-            "low": analysis.price,
-            "vol_base": 0.0,
-            "vol_quote": 0.0,
-        }
-    cutoff = df.index[-1] - pd.Timedelta(hours=24)
-    window = df[df.index >= cutoff]
-    if window.empty:
-        window = df.tail(min(len(df), 24))
-    open_p = float(window["open"].iloc[0])
-    high = float(window["high"].max())
-    low = float(window["low"].min())
-    last = float(window["close"].iloc[-1])
-    vol = float(window["volume"].sum())
-    change = last - open_p
-    pct = (change / open_p) * 100.0 if open_p else 0.0
+                cutoff = df.index[-1] - pd.Timedelta(hours=24)
+                window = df[df.index >= cutoff]
+                if window.empty:
+                    window = df.tail(min(len(df), 24))
+                open_p = float(window["open"].iloc[0])
+                high = max(float(window["high"].max()), float(analysis.price))
+                low = min(float(window["low"].min()), float(analysis.price))
+                last = float(analysis.price)
+                vol = float(window["volume"].sum())
+                change = last - open_p
+                pct = (change / open_p) * 100.0 if open_p else 0.0
+                return {
+                    "last": last,
+                    "change": change,
+                    "pct": pct,
+                    "high": high,
+                    "low": low,
+                    "vol_base": vol,
+                    "vol_quote": vol * last,
+                }
+
     return {
-        "last": last,
-        "change": change,
-        "pct": pct,
-        "high": high,
-        "low": low,
-        "vol_base": vol,
-        "vol_quote": vol * last,
+        "last": float(analysis.price),
+        "change": 0.0,
+        "pct": 0.0,
+        "high": float(analysis.price),
+        "low": float(analysis.price),
+        "vol_base": 0.0,
+        "vol_quote": 0.0,
     }
 
 
@@ -583,15 +614,11 @@ def _base_layout(fig: go.Figure, tickformat: str) -> None:
     )
 
 
-def build_original_chart(df: pd.DataFrame, tf: TimeFrame) -> tuple[go.Figure, str]:
-    """Binance Original: candles + MA7/25/99 + volume."""
-    fig = make_subplots(
-        rows=2,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.02,
-        row_heights=[0.78, 0.22],
-    )
+def build_original_chart(
+    df: pd.DataFrame, tf: TimeFrame, analysis: TopDownAnalysis | None = None
+) -> tuple[go.Figure, str]:
+    """Candles + MA7/25/99 + Asian/London/NY Session Levels (No volume bars)."""
+    fig = go.Figure()
     fig.add_trace(
         go.Candlestick(
             x=df.index,
@@ -606,9 +633,7 @@ def build_original_chart(df: pd.DataFrame, tf: TimeFrame) -> tuple[go.Figure, st
             decreasing_fillcolor=BN_RED,
             whiskerwidth=0.8,
             hoverinfo="skip",
-        ),
-        row=1,
-        col=1,
+        )
     )
     ma7 = sma(df["close"], 7)
     ma25 = sma(df["close"], 25)
@@ -625,29 +650,44 @@ def build_original_chart(df: pd.DataFrame, tf: TimeFrame) -> tuple[go.Figure, st
                 name=name,
                 line=dict(width=1.1, color=color),
                 hoverinfo="skip",
-            ),
-            row=1,
-            col=1,
+            )
         )
-    vol_colors = [BN_GREEN if c >= o else BN_RED for o, c in zip(df["open"], df["close"])]
-    fig.add_trace(
-        go.Bar(
-            x=df.index,
-            y=df["volume"],
-            marker_color=vol_colors,
-            marker_line_width=0,
-            name="Vol",
-            hoverinfo="skip",
-        ),
-        row=2,
-        col=1,
-    )
+
+    # Add Session Levels (Asian High/Low, London High/Low, NY High/Low)
+    if analysis is not None:
+        acc = getattr(analysis, "_accuracy", None)
+        ict_res = analysis.frames[TimeFrame.M15].ict if TimeFrame.M15 in analysis.frames else None
+        asia_h = getattr(acc, "asia_high", None) or (getattr(ict_res.session, "asian_high", None) if ict_res else None)
+        asia_l = getattr(acc, "asia_low", None) or (getattr(ict_res.session, "asian_low", None) if ict_res else None)
+        london_h = getattr(acc, "london_high", None)
+        london_l = getattr(acc, "london_low", None)
+        ny_h = getattr(acc, "ny_high", None)
+        ny_l = getattr(acc, "ny_low", None)
+
+        session_levels = [
+            ("Asia H", asia_h, "#c99400"),
+            ("Asia L", asia_l, "#c99400"),
+            ("London H", london_h, "#2962ff"),
+            ("London L", london_l, "#2962ff"),
+            ("NY H", ny_h, "#e040fb"),
+            ("NY L", ny_l, "#e040fb"),
+        ]
+        for s_name, s_val, s_col in session_levels:
+            if s_val:
+                fig.add_hline(
+                    y=float(s_val),
+                    line=dict(color=s_col, width=1.1, dash="dash"),
+                    annotation_text=f"{s_name}: {float(s_val):.2f}",
+                    annotation_font_color=s_col,
+                    annotation_font_size=10,
+                )
+
     last = df.iloc[-1]
     last_close = float(last["close"])
     last_open = float(last["open"])
     up = last_close >= last_open
     tag = BN_GREEN if up else BN_RED
-    fig.add_hline(y=last_close, line=dict(color=tag, width=1, dash="dot"), row=1, col=1)
+    fig.add_hline(y=last_close, line=dict(color=tag, width=1, dash="dot"))
     fig.add_annotation(
         x=df.index[-1],
         y=last_close,
@@ -658,13 +698,9 @@ def build_original_chart(df: pd.DataFrame, tf: TimeFrame) -> tuple[go.Figure, st
         bgcolor=tag,
         font=dict(color="#ffffff", size=11, family="Segoe UI"),
         xshift=8,
-        row=1,
-        col=1,
     )
     tickformat = "%m/%d" if tf in (TimeFrame.D1, TimeFrame.W1, TimeFrame.MN1) else "%H:%M"
     _base_layout(fig, tickformat)
-    fig.update_yaxes(showticklabels=False, row=2, col=1)
-    fig.update_xaxes(title_text="", row=2, col=1)
     overlay, _, _ = _ohlc_overlay(df, ma7, ma25, ma99)
     return fig, overlay
 
@@ -673,7 +709,7 @@ def build_tradingview_chart(
     df: pd.DataFrame, analysis: TopDownAnalysis, signal: TradeSignal, tf: TimeFrame
 ) -> tuple[go.Figure, str]:
     """TradingView-style pane with EMAs and optional entry/SL/TP."""
-    fig, overlay = build_original_chart(df, tf)
+    fig, overlay = build_original_chart(df, tf, analysis)
     tf_an = analysis.frames.get(tf)
     if tf_an:
         for series, color, name in (
@@ -684,8 +720,6 @@ def build_tradingview_chart(
             s = series.reindex(df.index).dropna()
             fig.add_trace(
                 go.Scatter(x=s.index, y=s.values, name=name, line=dict(width=1.15, color=color)),
-                row=1,
-                col=1,
             )
     if signal.risk and signal.is_actionable:
         r = signal.risk
@@ -699,14 +733,13 @@ def build_tradingview_chart(
                 line=dict(color=color, width=1.2, dash="dash"),
                 annotation_text=name,
                 annotation_font_color=color,
-                row=1,
-                col=1,
             )
     overlay += (
         "<div style='margin-top:4px;color:#707a8a'>TradingView layout · EMA20/50/200"
         + (" · Entry/SL/TP" if signal.risk and signal.is_actionable else "")
         + "</div>"
     )
+    return fig, overlay
     return fig, overlay
 
 
@@ -778,7 +811,7 @@ def build_chart(
     if view == "tradingview":
         fig, overlay = build_tradingview_chart(df, analysis, signal, tf)
         return fig, overlay, True
-    fig, overlay = build_original_chart(df, tf)
+    fig, overlay = build_original_chart(df, tf, analysis)
     return fig, overlay, False
 
 
@@ -1338,18 +1371,22 @@ class Dashboard(QMainWindow):
         row.addWidget(self.source_lbl)
 
         reset_btn = QPushButton("Reset Chart")
-        reset_btn.setObjectName("refreshBtn")
+        reset_btn.setObjectName("resetBtn")
+        reset_btn.setCursor(Qt.PointingHandCursor)
         reset_btn.setToolTip("Restore original zoom / pan after accidental zoom")
         reset_btn.clicked.connect(self._reset_chart_view)
         row.addWidget(reset_btn)
 
         self.clear_btn = QPushButton("Clear Stats")
         self.clear_btn.setObjectName("clearBtn")
+        self.clear_btn.setCursor(Qt.PointingHandCursor)
+        self.clear_btn.setToolTip("Clear signals history and reset machine learning stats")
         self.clear_btn.clicked.connect(self._clear_stats)
         row.addWidget(self.clear_btn)
 
         self.refresh_btn = QPushButton("Refresh")
         self.refresh_btn.setObjectName("refreshBtn")
+        self.refresh_btn.setCursor(Qt.PointingHandCursor)
         self.refresh_btn.clicked.connect(self.refresh)
         row.addWidget(self.refresh_btn)
         return header

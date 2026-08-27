@@ -1,0 +1,18 @@
+{
+  "name": "XAUUSD Signal Desk Pro",
+  "short_name": "XAU Signal",
+  "description": "Real-time XAUUSD SMC & ICT Technical Analysis Signal Desk for Android & Web",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0b0e11",
+  "theme_color": "#181a20",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

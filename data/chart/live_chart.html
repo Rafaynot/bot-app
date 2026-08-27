@@ -131,15 +131,7 @@ function baseLayout(tickformat, uirev) {
     yaxis: {
       showgrid: true, gridcolor: "#f0f1f2", linecolor: "#eaecef", side: "right",
       showspikes: true, spikemode: "across", spikecolor: "#c5cbd3",
-      spikethickness: 1, spikedash: "dot", domain: [0.24, 1]
-    },
-    xaxis2: {
-      matches: "x", showgrid: true, gridcolor: "#f0f1f2",
-      tickformat: tickformat, domain: [0, 1], anchor: "y2"
-    },
-    yaxis2: {
-      domain: [0, 0.20], showticklabels: false, side: "right",
-      showgrid: true, gridcolor: "#f0f1f2", anchor: "x2"
+      spikethickness: 1, spikedash: "dot", domain: [0, 1]
     },
     shapes: [],
     annotations: []
@@ -158,17 +150,13 @@ function candleTrace() {
 function lineTrace(color, name) {
   return { type: "scatter", mode: "lines", x: [], y: [], name: name, line: { width: 1.1, color: color }, hoverinfo: "skip", xaxis: "x", yaxis: "y" };
 }
-function volTrace() {
-  return { type: "bar", x: [], y: [], name: "Vol", marker: { color: [], line: { width: 0 } }, hoverinfo: "skip", xaxis: "x2", yaxis: "y2" };
-}
 
 function originalTraces() {
   return [
     candleTrace(),
     lineTrace("#f0b90b", "MA(7)"),
     lineTrace("#e040fb", "MA(25)"),
-    lineTrace("#7c4dff", "MA(99)"),
-    volTrace()
+    lineTrace("#7c4dff", "MA(99)")
   ];
 }
 function tvTraces() {
@@ -304,8 +292,22 @@ function accuracyShapes(acc) {
 }
 
 function accuracyAnns(acc) {
-  /* Names live in the overlay box so they never sit on Vol / OHLC text. */
-  return [];
+  if (!acc || !acc.active) return [];
+  const out = [];
+  (acc.sessions || []).forEach(function (s) {
+    out.push({
+      name: "accuracy", xref: "paper", x: 0.98, xanchor: "right",
+      y: s.y, yanchor: "bottom",
+      text: s.name + ": " + Number(s.y).toFixed(2),
+      showarrow: false,
+      font: { color: s.color, size: 10, family: "Segoe UI, sans-serif" },
+      bgcolor: "rgba(255,255,255,0.85)",
+      bordercolor: s.color,
+      borderwidth: 1,
+      borderpad: 2
+    });
+  });
+  return out;
 }
 
 function overlayHtml(p) {
@@ -639,14 +641,11 @@ window.updateChart = function (p) {
   Plotly.restyle(gd, {
     x: [p.ma7.x, p.ma25.x, p.ma99.x], y: [p.ma7.y, p.ma25.y, p.ma99.y]
   }, [1, 2, 3]);
-  Plotly.restyle(gd, {
-    x: [p.vol.x], y: [p.vol.y], "marker.color": [p.vol.colors]
-  }, [4]);
-  if (mode === "tradingview" && p.ema20 && gd.data.length >= 8) {
+  if (mode === "tradingview" && p.ema20 && gd.data.length >= 7) {
     Plotly.restyle(gd, {
       x: [p.ema20.x, p.ema50.x, p.ema200.x],
       y: [p.ema20.y, p.ema50.y, p.ema200.y]
-    }, [5, 6, 7]);
+    }, [4, 5, 6]);
   }
 
   const deco = lastPriceDecor(p.ohlc.x[p.ohlc.x.length - 1], p.last, p.tag_color);
