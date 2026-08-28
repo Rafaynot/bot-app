@@ -36,7 +36,7 @@ presplash.filename = %(source.dir)s/web/presplash.png
 # (str) Icon of the application
 icon.filename = %(source.dir)s/web/icon.png
 
-# (str) Supported orientation (one of landscape, sensorLandscape, portrait or all)
+# (str) Supported orientation (one of landscape, sensorLandscape, portrait or all) iuuiiouiiuuouioui
 orientation = all
 
 # (list) List of service to declare
