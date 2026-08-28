@@ -25,7 +25,7 @@ SERVER_URL = f"http://127.0.0.1:{PORT}"
 def start_backend_server():
     """Runs the web server in a daemon thread."""
     try:
-        from web_server import WebServer
+        from web_server import start_server
         from config import CONFIG, DataSource
 
         # Use binance or demo on mobile
@@ -33,8 +33,7 @@ def start_backend_server():
         CONFIG.binance.symbol = "XAUUSDT"
         CONFIG.binance.market = "futures"
 
-        server = WebServer(host="127.0.0.1", port=PORT)
-        server.run()
+        start_server(port=PORT, host="127.0.0.1")
     except Exception as exc:
         print(f"[AndroidApp] Backend error: {exc}")
 

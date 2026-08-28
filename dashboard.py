@@ -740,7 +740,6 @@ def build_tradingview_chart(
         + "</div>"
     )
     return fig, overlay
-    return fig, overlay
 
 
 def build_depth_chart(book: OrderBookSnapshot, last: float) -> tuple[go.Figure, str]:
