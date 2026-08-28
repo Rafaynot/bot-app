@@ -60,12 +60,12 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Accept Android SDK Licenses
+      - name: Accept Android SDK Licenses & Install Components
         run: |
+          mkdir -p ~/.android
+          touch ~/.android/repositories.cfg
           yes | sdkmanager --licenses || true
 
-      - name: Install Android SDK Components
-        run: |
           sdkmanager \
             "platform-tools" \
             "platforms;android-33" \
@@ -73,10 +73,17 @@ jobs:
             "platforms;android-34" \
             "build-tools;34.0.0"
 
+          # Pre-seed Buildozer SDK directory with accepted licenses
+          mkdir -p /home/runner/.buildozer/android/platform/android-sdk/licenses
+          if [ -d "$ANDROID_SDK_ROOT/licenses" ]; then
+            cp -r $ANDROID_SDK_ROOT/licenses/* /home/runner/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
+          fi
+
       - name: Set Environment Variables
         run: |
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          echo "BUILDOZER_ACCEPT_SDK_LICENSE=1" >> $GITHUB_ENV
 
       - name: Install Python Dependencies
         run: |
@@ -87,9 +94,11 @@ jobs:
             virtualenv
 
       - name: Build APK with Buildozer
+        env:
+          BUILDOZER_ACCEPT_SDK_LICENSE: "1"
         run: |
           set -o pipefail
-          buildozer -v android debug 2>&1 | tee buildozer.log
+          yes | buildozer -v android debug 2>&1 | tee buildozer.log
 
       - name: Find & Check APK
         if: always()
