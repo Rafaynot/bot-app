@@ -88,7 +88,16 @@ jobs:
 
       - name: Build APK with Buildozer
         run: |
+          set -o pipefail
           buildozer -v android debug 2>&1 | tee buildozer.log
+
+      - name: Find & Check APK
+        if: always()
+        run: |
+          echo "=== Generated Files in bin/ ==="
+          ls -la bin/ || true
+          echo "=== Find all .apk files ==="
+          find . -name "*.apk" || true
 
       - name: Upload Build Log
         if: always()
@@ -99,9 +108,9 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload APK Artifact
+        if: always()
         uses: actions/upload-artifact@v4
-        if: success()
         with:
           name: xauusd-signal-desk-apk
           path: bin/*.apk
-          if-no-files-found: error
+          if-no-files-found: warn

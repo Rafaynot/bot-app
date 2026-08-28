@@ -147,7 +147,17 @@ def run_headless() -> int:
     return 0
 
 
+def is_android() -> bool:
+    import os
+    return "ANDROID_ARGUMENT" in os.environ or "PYTHON_SERVICE_ARGUMENT" in os.environ or "KIVY_BUILD" in os.environ
+
+
 def main(argv: list[str] | None = None) -> int:
+    if is_android():
+        import android_main
+        android_main.main()
+        return 0
+
     args = parse_args(argv)
     apply_args(args)
     setup_logging(CONFIG.log_level)

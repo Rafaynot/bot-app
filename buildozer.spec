@@ -29,7 +29,7 @@ version = 1.0.0
 
 # (list) Application requirements
 # comma separated e.g. requirements = sqlite3,kivy
-requirements = python3,kivy,requests,urllib3,pytz,jinja2
+requirements = python3,kivy,requests,urllib3,pytz,jinja2,certifi,idna,charset-normalizer,pyjnius
 
 # (str) Presplash of the application
 presplash.filename = %(source.dir)s/web/presplash.png
@@ -72,7 +72,7 @@ android.minapi = 21
 android.private_storage = True
 
 # (list) The Android architectures to build for
-android.archs = arm64-v8a, armeabi-v7a
+android.archs = arm64-v8a
 
 # (bool) enables Android auto backup feature (Android API >=23)
 android.allow_backup = True
