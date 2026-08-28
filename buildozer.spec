@@ -60,13 +60,13 @@ android.permissions = INTERNET,ACCESS_NETWORK_STATE,WAKE_LOCK,VIBRATE
 android.api = 33
 
 # (int) Minimum API your APK will support.
-android.minapi = 21
+android.minapi = 24
 
 # (str) Android NDK version to use
 android.ndk = 25b
 
 # (int) Android NDK API to use
-android.ndk_api = 21
+android.ndk_api = 24
 
 # (bool) Automatically accept SDK license
 android.accept_sdk_license = True
