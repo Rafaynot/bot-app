@@ -29,7 +29,7 @@ version = 1.0.0
 
 # (list) Application requirements
 # comma separated e.g. requirements = sqlite3,kivy
-requirements = python3==3.11.9,kivy,numpy,pandas,requests,urllib3,pytz,jinja2,certifi,idna,charset-normalizer,pyjnius
+requirements = hostpython3==3.11.9,python3==3.11.9,kivy,numpy,pandas,requests,urllib3,pytz,jinja2,certifi,idna,charset-normalizer,pyjnius
 
 # (str) Presplash of the application
 presplash.filename = %(source.dir)s/web/presplash.png
@@ -108,6 +108,3 @@ warn_on_root = 1
 
 # (str) Path to build artifact storage, default is ./bin
 bin_dir = ./bin
-
-# (str) python-for-android git clone directory
-p4a.source_dir = p4a

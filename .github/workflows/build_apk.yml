@@ -85,15 +85,6 @@ jobs:
             buildozer \
             virtualenv
 
-      - name: Prepare Python-for-Android
-        run: |
-          git clone -b master --single-branch https://github.com/kivy/python-for-android.git p4a
-          # Replace broken/experimental 3.14.2 with official stable 3.11.9 in python recipes
-          sed -i "s/version = '3.14.2'/version = '3.11.9'/g" p4a/pythonforandroid/recipes/python3/__init__.py || true
-          sed -i "s/version = '3.14.2'/version = '3.11.9'/g" p4a/pythonforandroid/recipes/hostpython3/__init__.py || true
-          sed -i 's/version = "3.14.2"/version = "3.11.9"/g' p4a/pythonforandroid/recipes/python3/__init__.py || true
-          sed -i 's/version = "3.14.2"/version = "3.11.9"/g' p4a/pythonforandroid/recipes/hostpython3/__init__.py || true
-
       - name: Build APK with Buildozer
         env:
           BUILDOZER_ACCEPT_SDK_LICENSE: "1"
