@@ -96,13 +96,11 @@ jobs:
           set -o pipefail
           buildozer -v android debug 2>&1 | tee buildozer.log
 
-      - name: Find & Check APK
-        if: always()
+      - name: Print Build Log on Failure
+        if: failure()
         run: |
-          echo "=== Generated Files in bin/ ==="
-          ls -la bin/ || true
-          echo "=== Find all .apk files ==="
-          find . -name "*.apk" || true
+          echo "=== BUILDOZER FAILURE LOG (LAST 120 LINES) ==="
+          tail -n 120 buildozer.log || true
 
       - name: Upload Build Log
         if: always()
