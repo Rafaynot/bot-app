@@ -99,8 +99,10 @@ jobs:
       - name: Print Build Log on Failure
         if: failure()
         run: |
-          echo "=== BUILDOZER FAILURE LOG (LAST 120 LINES) ==="
-          tail -n 120 buildozer.log || true
+          echo "=== BUILDOZER COMPILE ERRORS ==="
+          grep -E -C 10 -i "error:|fatal error|exception|traceback" buildozer.log | head -n 120 || true
+          echo "=== BUILDOZER LOG (LAST 350 LINES) ==="
+          tail -n 350 buildozer.log || true
 
       - name: Upload Build Log
         if: always()

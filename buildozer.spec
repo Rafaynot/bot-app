@@ -29,14 +29,15 @@ version = 1.0.0
 
 # (list) Application requirements
 # comma separated e.g. requirements = sqlite3,kivy
-requirements = python3,kivy,numpy,pandas,requests,urllib3,pytz,jinja2,certifi,idna,charset-normalizer,pyjnius
+requirements = python3==3.11.9,kivy,numpy,pandas,requests,urllib3,pytz,jinja2,certifi,idna,charset-normalizer,pyjnius
+
 # (str) Presplash of the application
 presplash.filename = %(source.dir)s/web/presplash.png
 
 # (str) Icon of the application
 icon.filename = %(source.dir)s/web/icon.png
 
-# (str) Supported orientation (one of landscape, sensorLandscape, portrait or all) iuuiiouiiuuouioui
+# (str) Supported orientation (one of landscape, sensorLandscape, portrait or all)
 orientation = all
 
 # (list) List of service to declare
