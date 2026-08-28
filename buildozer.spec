@@ -108,3 +108,6 @@ warn_on_root = 1
 
 # (str) Path to build artifact storage, default is ./bin
 bin_dir = ./bin
+
+# (str) python-for-android git clone directory
+p4a.source_dir = p4a
