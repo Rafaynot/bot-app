@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#181a20"/>
+      <stop offset="100%" stop-color="#0b0e11"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fcd535"/>
+      <stop offset="100%" stop-color="#f0b90b"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2ebd85"/>
+      <stop offset="100%" stop-color="#0ecb81"/>
+    </linearGradient>
+  </defs>
+  <rect width="192" height="192" rx="42" fill="url(#bg)"/>
+  <rect x="3" y="3" width="186" height="186" rx="39" fill="none" stroke="url(#gold)" stroke-width="3" stroke-opacity="0.4"/>
+  <!-- Candlesticks -->
+  <line x1="60" y1="52" x2="60" y2="140" stroke="#f6465d" stroke-width="4" stroke-linecap="round"/>
+  <rect x="52" y="74" width="16" height="42" rx="3" fill="#f6465d"/>
+  
+  <line x1="96" y1="36" x2="96" y2="156" stroke="url(#green)" stroke-width="4" stroke-linecap="round"/>
+  <rect x="88" y="56" width="16" height="74" rx="3" fill="url(#green)"/>
+  
+  <line x1="132" y1="44" x2="132" y2="148" stroke="url(#gold)" stroke-width="4" stroke-linecap="round"/>
+  <rect x="124" y="68" width="16" height="52" rx="3" fill="url(#gold)"/>
+  
+  <!-- Trend line -->
+  <path d="M46 128 L88 88 L124 104 L154 48" fill="none" stroke="#fcd535" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="154" cy="48" r="6" fill="#fcd535"/>
+</svg>

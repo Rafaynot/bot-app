@@ -1,0 +1,6 @@
+# Example configuration for signed APK release build
+# Rename this file to 'key.properties' in the same folder and update with your keystore path & credentials
+storePassword=your_keystore_password
+keyPassword=your_key_password
+keyAlias=your_key_alias
+storeFile=../upload-keystore.jks
